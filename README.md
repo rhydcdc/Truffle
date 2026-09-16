@@ -31,5 +31,6 @@
 | `src/model.py` | 트랜스포머 · 라우팅 키 · 반복 라우팅 루프(정지 규칙 · q 보정) |
 | `src/data.py` | 테스트베드 생성기 |
 | `src/train.py` · `src/metrics.py` | 학습 루프 · 손실 4종 · 완수 지표 |
-| `web/export.py` | 브라우저용 ONNX 자산 생성 |
+| `web/export.py` | 브라우저용 ONNX 자산 생성 (fp32 — 원본 모델 그대로) |
+| `web/demo.js` | 체험 — 모델을 브라우저에서 돌린다 (onnxruntime-web · 서버 없음) |
 | `index.html` | 워크스루 + 체험 데모 |

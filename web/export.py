@@ -27,8 +27,21 @@ import torch.nn.functional as F
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import measure                                    # noqa: E402
+from src.config import Config                     # noqa: E402
 from src.data import EpisodeGen                   # noqa: E402
+from src.model import CacheRouter                 # noqa: E402
+
+
+def load_ckpt(path: Path, dev: str):
+    """체크포인트를 연다. 런마다 k · 라운드 수가 달라 저장된 설정으로 모델을 세운다."""
+    from dataclasses import fields
+    st = torch.load(path, map_location="cpu", weights_only=False)
+    names = {f.name for f in fields(Config)}
+    cfg = Config(**{k: v for k, v in st["cfg"].items() if k in names})
+    m = CacheRouter(cfg).to(dev)
+    m.load_state_dict(st["model"])
+    m.eval()
+    return m, cfg, int(st["global_step"]), path.name
 
 CKPT = ROOT / "frontier" / "N64" / "n64_lr_step15000.pt"
 OUT = Path(__file__).resolve().parent / "assets"
@@ -40,7 +53,17 @@ SHAPES = ["원", "삼각", "사각", "십자"]
 
 
 class QEnc(nn.Module):
-    """그림 one-hot -> 정규화된 q, 그리고 슬롯 시작 상태 e_q."""
+    """그림 one-hot -> 정규화된 q, 그리고 슬롯 시작 상태 e_q.
+
+    질의는 **S = 1** 이다. 자기어텐션이 자기 자신 하나뿐이면 softmax 가 1 이 되어
+    출력이 곧 v 다 — q · k 도 RoPE 도 결과에 영향이 없다 (실측 최대 절대차 0.000e+00,
+    한 층에서도 12층 전체 경로에서도). 그래서 그 둘을 빼고 v 경로만 내보낸다.
+
+    이유가 둘이다:
+      · apply_rope 가 x.float() 로 업캐스트해서, 그대로 두면 fp16/fp32 가 섞인 그래프가 나온다
+        (onnxruntime 이 LayerNormalization 타입 불일치로 아예 로드를 거부했다)
+      · qkv 의 q · k 부분이 필요 없어져 가중치가 준다
+    """
 
     def __init__(self, m):
         super().__init__()
@@ -48,7 +71,12 @@ class QEnc(nn.Module):
 
     def forward(self, oh):
         e = self.m.embed(oh)
-        h = self.m._encode_query(e)
+        z = e
+        for blk in self.m.blocks:
+            v = blk.qkv(blk.n1(z)).chunk(3, -1)[2]          # softmax(1개) = 1 -> 출력 = v
+            z = z + blk.proj(v)
+            z = z + blk.fc2(F.gelu(blk.fc1(blk.n2(z))))
+        h = self.m.norm_f(z)
         return F.normalize(self.m.Wq(h), dim=-1), e
 
 
@@ -70,7 +98,7 @@ class Slot(nn.Module):
 @torch.no_grad()
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    m, cfg, step, src = measure.load(CKPT, DEV)
+    m, cfg, step, src = load_ckpt(CKPT, DEV)
     m.eval()
     N, L, H, dh, n = cfg.n_rooms, cfg.n_layers, cfg.n_heads, cfg.d_head, cfg.frames_per_room
     n_sym = cfg.n_colors + 1
@@ -98,9 +126,9 @@ def main() -> None:
     V = V.view(L, N, n, H, dh)
 
     # ---------------------------------------------------------------- ONNX
-    # fp16 으로 내보낸다 — 크기가 절반이다. 결정이 바뀌는지는 web/verify.py 가 센다.
-    # (바꾸려면 HALF=False. 그때 자산이 두 배가 된다)
-    HALF = True
+    # fp32 로 내보낸다 — 원본 모델 그대로. fp16 은 크기가 절반이지만 q 오차(약 1e-4)가
+    # 손으로 그린 그림에서 점수 차 1e-5 인 동점을 뒤집었다 (400건 중 2건). 크기보다 같은 답이 중요하다
+    HALF = False
     mh = m.half() if HALF else m
     dt = torch.float16 if HALF else torch.float32
 
@@ -121,9 +149,9 @@ def main() -> None:
                       opset_version=17, dynamo=False)
 
     # ---------------------------------------------------------------- 자산
-    # KV 는 fp16 으로 싣는다 (fp32 대비 절반). 결정이 바뀌는지는 verify.py 가 센다
+    # KV 도 모델과 같은 정밀도로 싣는다
     (OUT / "kv.bin").write_bytes(
-        torch.cat([K.flatten(), V.flatten()]).to(torch.float16).numpy().tobytes())
+        torch.cat([K.flatten(), V.flatten()]).to(dt).numpy().tobytes())
     (OUT / "keys.bin").write_bytes(keys[0].to(torch.float32).numpy().tobytes())
 
     combo = b["room_combo"][0].tolist()
@@ -135,7 +163,7 @@ def main() -> None:
         frames_per_room=n, n_colors=cfg.n_colors, n_shapes=cfg.n_shapes, n_sizes=cfg.n_sizes,
         n_sym=n_sym, n_cells=cfg.n_cells, radii=[float(r) for r in gen.radii],
         colors=[dict(name=c, var=v) for c, v in COLORS], shapes=SHAPES,
-        step=step, src=src, seed=EPISODE_SEED,
+        step=step, src=src, seed=EPISODE_SEED, dtype="float16" if HALF else "float32",
         rooms=[dict(id=i, combo=c, color=c // cfg.n_shapes, shape=c % cfg.n_shapes,
                     cy=p // cfg.grid, cx=p % cfg.grid, size=s)
                for i, (c, p, s) in enumerate(zip(combo, pos, size))],
