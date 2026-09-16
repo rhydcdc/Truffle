@@ -1,0 +1,2258 @@
+<title>캐시 라우팅 워크스루</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f6f5fa; --surface:#ffffff; --surface-2:#faf9fd;
+  --ink:#14121c; --ink-2:#56526a; --muted:#8a8699;
+  --hair:#e4e1ee; --hair-2:#cfcadf;
+  --accent:#5947b8; --accent-2:#7668cb; --accent-soft:#efedfb; --accent-ring:rgba(89,71,184,.28);
+  --good:#0ca30c; --crit:#d03b3b;
+  --o-blue:#2a78d6; --o-red:#e34948; --o-green:#12a05f; --o-yellow:#d99400;
+  --grid-line:rgba(20,18,28,.10);
+  --shadow:0 1px 2px rgba(20,18,28,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plane:#0d0c13; --surface:#17161f; --surface-2:#1c1b26;
+    --ink:#f4f3f8; --ink-2:#a8a4bb; --muted:#7d7994;
+    --hair:#282534; --hair-2:#383449;
+    --accent:#9085e9; --accent-2:#a79ef0; --accent-soft:#221e38; --accent-ring:rgba(144,133,233,.34);
+    --good:#3fc23f; --crit:#ef6a6a;
+    --o-blue:#5598e7; --o-red:#e66767; --o-green:#23bd78; --o-yellow:#f0b429;
+    --grid-line:rgba(244,243,248,.11);
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0d0c13; --surface:#17161f; --surface-2:#1c1b26;
+  --ink:#f4f3f8; --ink-2:#a8a4bb; --muted:#7d7994;
+  --hair:#282534; --hair-2:#383449;
+  --accent:#9085e9; --accent-2:#a79ef0; --accent-soft:#221e38; --accent-ring:rgba(144,133,233,.34);
+  --good:#3fc23f; --crit:#ef6a6a;
+  --o-blue:#5598e7; --o-red:#e66767; --o-green:#23bd78; --o-yellow:#f0b429;
+  --grid-line:rgba(244,243,248,.11);
+  --shadow:none;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--plane);color:var(--ink);
+  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.3}
+p{margin:0}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+
+/* ── 좌측 고정 목차 ── */
+.shell{display:grid;grid-template-columns:206px minmax(0,1fr);gap:34px;padding-right:28px}
+@media (max-width:900px){.shell{grid-template-columns:1fr;gap:0;padding-inline:16px}}
+.rail{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;
+  padding:26px 14px 26px 20px;border-right:1px solid var(--hair);background:var(--surface)}
+@media (max-width:900px){.rail{position:static;height:auto;border-right:0;
+  border-bottom:1px solid var(--hair);padding:20px 0 6px;background:transparent}}
+.rail-mark{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;margin-bottom:16px}
+.toc-group{margin-bottom:14px}
+.toc-head{display:flex;align-items:center;gap:7px;width:100%;font-size:12px;font-weight:700;
+  letter-spacing:.03em;color:var(--muted);margin-bottom:5px;
+  font-family:inherit;background:none;border:0;border-radius:3px;
+  padding:5px 7px;margin-left:-7px;cursor:pointer;text-align:left}
+.toc-head i{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none;
+  font-style:normal;opacity:.45}
+.toc-head:hover{color:var(--ink);background:var(--surface-2)}
+.toc-head.on{color:var(--accent);background:var(--accent-soft)}
+.toc-head.on i{background:var(--accent);opacity:1}
+.rail.js .toc-group ol{max-height:0;overflow:hidden;opacity:0}
+.rail.js .toc-group.open ol{max-height:none;overflow:visible;opacity:1}
+@media (prefers-reduced-motion:no-preference){.rail.js .toc-group ol{transition:opacity .16s ease}}
+.toc-group ol{list-style:none;margin:0;padding:0 0 0 12px;border-left:1px solid var(--hair);
+  display:flex;flex-direction:column}
+.toc-group a{display:block;padding:2px 0;font-size:12.5px;line-height:1.45;color:var(--ink-2);text-decoration:none}
+.toc-group a:hover{color:var(--accent)}
+.toc-group a.on{color:var(--accent);font-weight:600}
+.tn{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--muted);margin-right:6px}
+.toc-group a.on .tn{color:var(--accent)}
+@media (max-width:900px){.toc-group ol{flex-direction:row;flex-wrap:wrap;gap:1px 12px;border-left:0;padding-left:0}}
+.part{min-height:1px}
+.rtabs{display:flex;gap:6px;margin:0 0 22px;border-bottom:1px solid var(--hair);padding-bottom:0}
+.rtab{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink-2);background:none;
+  border:1px solid transparent;border-bottom:none;border-radius:2px 2px 0 0;padding:8px 16px;cursor:pointer;
+  margin-bottom:-1px}
+.rtab:hover{color:var(--ink)}
+.rtab.on{color:var(--accent);background:var(--surface);border-color:var(--hair);border-bottom:1px solid var(--surface)}
+.rtab:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px}
+.statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0}
+[hidden]{display:none!important}   /* .dm 처럼 display 를 가진 클래스가 hidden 을 이기지 않도록 */
+.dm{display:grid;grid-template-columns:minmax(240px,300px) 1fr;gap:20px;align-items:start;margin-top:18px}
+.dm-lab{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-top:13px}
+.dm-det{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--ink);
+  border:1px solid var(--hair-2);border-radius:2px;padding:7px 11px;background:var(--surface)}
+.dm-det .iou{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:500;color:var(--muted)}
+.dm-det.none{color:var(--muted);font-weight:500}
+@media (max-width:760px){.dm{grid-template-columns:1fr}}
+#dmc{width:100%;aspect-ratio:1;image-rendering:pixelated;border:1px solid var(--hair-2);border-radius:2px;
+  background:var(--surface-2);cursor:crosshair;touch-action:none;display:block}
+.dm-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;align-items:center}
+.dm-btn{font-family:inherit;font-size:12px;font-weight:600;color:var(--ink-2);background:var(--surface);
+  border:1px solid var(--hair-2);border-radius:2px;padding:5px 10px;cursor:pointer}
+.dm-btn.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.dm-btn:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px}
+.dm-sw{width:26px;height:26px;border-radius:2px;border:2px solid var(--hair-2);cursor:pointer;padding:0}
+.dm-sw.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--accent-ring)}
+.dm-dial{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;margin-top:8px;font-size:12px}
+.dm-dial input{width:100%}
+.dm-dial b{font-family:"IBM Plex Mono",monospace;color:var(--accent);min-width:3.2em;text-align:right}
+.dm-rooms{display:grid;grid-template-columns:repeat(16,1fr);gap:3px}
+.dm-cell{aspect-ratio:1;border:1px solid var(--hair);border-radius:2px;background:var(--surface-2);
+  display:flex;align-items:center;justify-content:center}
+.dm-cell svg{width:100%;height:100%}
+.dm-bot{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start;margin-top:4px}
+@media (max-width:700px){.dm-bot{grid-template-columns:1fr}}
+.dm-cache{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;max-width:340px}
+.dm-cq{aspect-ratio:1;border-radius:2px;background:var(--surface-2);border:1px solid var(--hair);
+  transition:background .25s ease,border-color .25s ease,transform .25s ease}
+.dm-cq.read{background:var(--hair-2);border-color:var(--hair-2);transform:scale(1.06)}
+.dm-cq.ans{background:var(--good);border-color:var(--good)}
+.dm-cq.fp{background:var(--crit);border-color:var(--crit)}
+.dm-cq.miss{background:transparent;border-color:var(--o-yellow);box-shadow:inset 0 0 0 1px var(--o-yellow)}
+.dm-recon{display:flex;gap:8px;flex-wrap:wrap;min-height:58px;align-items:flex-start}
+.dm-rc{width:54px;border:1px solid var(--hair-2);border-radius:2px;background:var(--surface);padding:3px;
+  opacity:0;transform:scale(.8);transition:opacity .28s ease,transform .28s ease}
+.dm-rc.on{opacity:1;transform:scale(1)}
+.dm-rc.ok{border-color:var(--good)}
+.dm-rc.no{border-color:var(--crit)}
+.dm-rc .rid{font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--muted);text-align:center;margin-top:1px}
+.dm-legend{display:flex;gap:13px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-2);margin-top:7px;align-items:center}
+.dm-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.dm-off{margin-top:14px}
+
+main{padding:26px 0 80px;min-width:0;max-width:1400px}
+
+.masthead{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:30px}
+.masthead h1{font-size:clamp(27px,4vw,38px);font-weight:700;letter-spacing:-.02em}
+.dek{margin-top:11px;font-size:16px;color:var(--ink-2);max-width:46em}
+.meta-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:16px}
+.chip{font-size:11.5px;font-weight:500;padding:3px 9px;border-radius:2px;
+  border:1px solid var(--hair-2);color:var(--ink-2);background:var(--surface)}
+.chip.hot{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+.band{margin:58px 0 26px;padding:19px 22px;background:var(--ink);color:var(--plane);border-radius:2px}
+.band .k{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;opacity:.62;font-weight:600}
+.band h2{font-size:23px;font-weight:700;margin-top:3px;letter-spacing:-.01em}
+.band p{margin-top:7px;font-size:14px;opacity:.82;max-width:52em}
+
+.step{margin-block:34px;scroll-margin-top:16px}
+.step-head{display:flex;gap:11px;align-items:baseline;padding-bottom:9px;
+  border-bottom:1px solid var(--hair);margin-bottom:16px}
+.step-num{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--accent);flex:none;padding-top:3px}
+.step-head h3{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.prose{max-width:50em;color:var(--ink-2);display:flex;flex-direction:column;gap:11px}
+.prose strong{color:var(--ink);font-weight:600}
+.prose .hi,.hi{color:var(--accent);font-weight:600}
+
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:2px;
+  padding:17px;margin-top:16px;box-shadow:var(--shadow)}
+.card > .cap{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);font-weight:600;margin-bottom:13px}
+figure{margin:16px 0 0}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:9px;line-height:1.6;max-width:58em}
+
+.note{border-left:2px solid var(--accent);background:var(--accent-soft);
+  padding:12px 16px;margin-top:16px;font-size:13.5px;color:var(--ink-2);border-radius:0 2px 2px 0;max-width:62em}
+.note strong{color:var(--ink)}
+.note.warn{border-left-color:var(--crit);background:color-mix(in srgb,var(--crit) 8%,transparent)}
+.note.next{border-left-color:var(--good);background:color-mix(in srgb,var(--good) 9%,transparent)}
+.premise{margin-top:16px;padding:14px 18px;border:1px solid var(--accent);border-radius:2px;
+  background:var(--surface);color:var(--ink);font-size:15px;font-weight:600;max-width:58em}
+.premise .k{display:block;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+
+pre{margin:0;overflow-x:auto;background:var(--surface-2);border:1px solid var(--hair);
+  border-radius:2px;padding:14px 16px;font-family:"IBM Plex Mono",monospace;
+  font-size:12.5px;line-height:1.75;color:var(--ink);font-variant-numeric:tabular-nums}
+.c{color:var(--muted)}
+pre .c{color:var(--muted)}
+pre .a{color:var(--accent);font-weight:600}
+pre .g{color:var(--good);font-weight:600;
+  display:inline;position:static;padding-top:0;gap:0}
+pre .x{color:var(--crit);font-weight:600}
+
+table{border-collapse:collapse;width:100%;font-size:13px}
+.tw{overflow-x:auto;margin-top:16px;border:1px solid var(--hair);border-radius:2px;background:var(--surface)}
+th,td{text-align:left;padding:7px 12px;border-bottom:1px solid var(--hair);white-space:nowrap;vertical-align:top}
+td.wrap{white-space:normal;min-width:220px}
+th{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--surface-2)}
+tbody tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+tr.pick td{background:var(--accent-soft);font-weight:600;color:var(--ink)}
+tr.dead td{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--hair-2)}
+
+/* ── 방 지도 ── */
+.rooms{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:11px;margin-top:16px}
+.room{background:var(--surface);border:1px solid var(--hair);border-radius:2px;padding:7px}
+.room.hit{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-ring)}
+.room-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;min-height:15px}
+.room-id{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;color:var(--ink-2)}
+.room.hit .room-id{color:var(--accent)}
+.tag{font-size:9px;font-weight:700;letter-spacing:.04em;color:var(--accent);
+  background:var(--accent-soft);border:1px solid var(--accent-ring);padding:0 4px;border-radius:2px}
+.map{position:relative;width:100%;max-width:100%;aspect-ratio:1;border:1px solid var(--hair-2);
+  background-image:linear-gradient(to right,var(--grid-line) 1px,transparent 1px),
+                   linear-gradient(to bottom,var(--grid-line) 1px,transparent 1px);
+  background-size:calc(100%/16) calc(100%/16)}
+.map svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.room-legend{margin-top:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+  font-size:10px;color:var(--ink-2);font-family:"IBM Plex Mono",monospace}
+.room-legend .pos{color:var(--muted)}
+.sw{display:inline-block;width:7px;height:7px;border-radius:1px;flex:none}
+
+/* ── 점수 막대 ── */
+.bars{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+.bar-row{display:grid;grid-template-columns:46px 62px 1fr 56px 72px;gap:8px;align-items:center}
+.bar-lab{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-2);font-weight:500}
+.bar-sub{font-size:10.5px;color:var(--muted)}
+.track{position:relative;height:14px;background:var(--surface-2);border-radius:2px}
+.track::before{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--hair-2)}
+.fill{position:absolute;top:2px;bottom:2px;background:var(--hair-2);border-radius:1px}
+.fill.p{left:50%;border-radius:1px 4px 4px 1px}
+.fill.n{right:50%;border-radius:4px 1px 1px 4px}
+.bar-val{font-family:"IBM Plex Mono",monospace;font-size:11.5px;text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.bar-row.pick .bar-lab,.bar-row.pick .bar-val{color:var(--accent);font-weight:600}
+.bar-row.pick .fill{background:var(--accent)}
+.bar-row.miss .bar-lab,.bar-row.miss .bar-val{color:var(--crit);font-weight:600}
+.bar-row.miss .fill{background:var(--crit);opacity:.6}
+.bar-row.skip{opacity:.5}
+.bd{font-size:9.5px;font-weight:600;letter-spacing:.03em;padding:1px 5px;border-radius:2px;
+  border:1px solid var(--hair-2);color:var(--muted);justify-self:start;white-space:nowrap}
+.bd.hit{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.bd.no{border-color:var(--hair-2);color:var(--ink-2)}
+.bd.wait{border-color:var(--crit);color:var(--crit)}
+.cutline{display:flex;align-items:center;gap:9px;margin:5px 0;color:var(--accent);font-size:10.5px;font-weight:600;letter-spacing:.02em}
+.cutline::before,.cutline::after{content:"";flex:1;height:1px;background:var(--accent);opacity:.45}
+
+/* ── 캐시 격자 ── */
+.kvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:7px;margin-top:4px}
+.g{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;padding-top:15px}
+.g > b{display:block;position:absolute;top:0;width:22%;height:13px;border-radius:2px;border:1px solid var(--hair-2);background:transparent}
+.g > b:nth-of-type(1){left:2%} .g > b:nth-of-type(2){left:27%}
+.g > b:nth-of-type(3){left:52%} .g > b:nth-of-type(4){left:77%}
+.g span{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--muted)}
+.g em{font-style:normal;font-family:"IBM Plex Mono",monospace;font-size:9px;color:var(--muted)}
+.g.read > b{background:var(--accent-2);border-color:var(--accent-2);opacity:.45}
+.g.read span{color:var(--ink-2)}
+.g.hit > b{background:var(--accent);border-color:var(--accent);opacity:1}
+.g.hit span{color:var(--accent);font-weight:600}
+.g.drop > b{border-style:dashed;opacity:.5}
+.g.drop span{text-decoration:line-through}
+
+.duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:16px}
+.stat{background:var(--surface);border:1px solid var(--hair);border-radius:2px;padding:13px 15px}
+.stat .l{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.stat .v{font-family:"IBM Plex Mono",monospace;font-size:25px;font-weight:600;color:var(--accent);margin-top:5px;line-height:1.1}
+.stat .s{font-size:12px;color:var(--ink-2);margin-top:4px}
+
+/* 수식 파트 */
+.eq{background:var(--surface);border:1px solid var(--hair);border-radius:2px;margin-top:16px}
+.eq > .cap{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:11px 16px 0}
+.eq pre{border:0;background:transparent;font-size:13px;line-height:1.9}
+.shape{color:var(--accent);font-weight:600}
+.dimtag{font-size:11px;color:var(--muted)}
+
+svg{max-width:100%;height:auto}
+.dia{background:var(--surface);border:1px solid var(--hair);border-radius:2px;padding:15px;overflow-x:auto;margin-top:16px}
+.dia svg{color:var(--ink-2);display:block;margin:0 auto;max-width:700px}
+.dia.narrow svg{max-width:380px}
+
+ul.tight{margin:0;padding-left:17px;display:flex;flex-direction:column;gap:7px;color:var(--ink-2);max-width:58em}
+ul.tight strong{color:var(--ink)}
+ul.tight li::marker{color:var(--muted)}
+
+/* ── 입력 → 출력 한눈에 ── */
+.io{display:grid;grid-template-columns:minmax(0,1fr) 120px minmax(0,1.4fr);gap:14px;align-items:stretch}
+@media (max-width:820px){.io{grid-template-columns:1fr}}
+.io-box{background:var(--surface);border:1px solid var(--hair);border-radius:2px;padding:17px;
+  display:flex;flex-direction:column;gap:14px;box-shadow:var(--shadow)}
+.io-box.out{border-color:var(--accent)}
+.io-box > .cap{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.io-query{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start;justify-items:center}
+.io-query .io-keys{justify-self:stretch}
+@media (max-width:440px){.io-query{grid-template-columns:1fr}}
+.io-keys{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.io-keys li{font-size:12.5px;line-height:1.55;color:var(--ink-2)}
+.io-keys strong{color:var(--ink);font-weight:600}
+.src{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.03em;padding:0 5px;border-radius:2px;
+  border:1px solid var(--hair-2);color:var(--ink-2);margin-right:6px;vertical-align:1px;white-space:nowrap}
+.src.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.io-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;align-self:center;
+  text-align:center;font-size:11.5px;color:var(--accent);font-weight:600;line-height:1.45}
+.io-mid small{display:block;font-size:10.5px;color:var(--muted);font-weight:500}
+.io-mid svg{width:100%;max-width:100px;height:auto}
+@media (max-width:820px){.io-mid{flex-direction:row;padding:2px 0}.io-mid svg{transform:rotate(90deg);max-width:44px}}
+.io-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.io-tile{border:1px solid var(--accent);box-shadow:0 0 0 2px var(--accent-ring);border-radius:2px;padding:6px;background:var(--surface)}
+.io-tile .t{display:flex;justify-content:space-between;align-items:baseline;gap:4px;margin-bottom:5px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;font-variant-numeric:tabular-nums}
+.io-tile .t b{color:var(--accent);font-weight:600}
+.io-tile .t span{color:var(--muted)}
+
+footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--hair);
+  font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:5px 18px}
+</style>
+
+<div class="shell">
+
+<aside class="rail">
+  <div class="rail-mark">Cache Routing</div>
+  <nav>
+    <div class="toc-group">
+      <button class="toc-head" data-part="data" type="button"><i></i>데이터셋</button>
+      <ol><li><a href="#stage"><span class="tn mono">00</span>방 32개 · 질의 · 라벨</a></li></ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="flow" type="button"><i></i>전체 흐름</button>
+      <ol>
+        <li><a href="#f0"><span class="tn mono">00</span>입력과 출력</a></li>
+        <li><a href="#f1"><span class="tn mono">01</span>입력 두 가지</a></li>
+        <li><a href="#f2"><span class="tn mono">02</span>방마다 키</a></li>
+        <li><a href="#f3"><span class="tn mono">03</span>라운드 루프</a></li>
+        <li><a href="#f4"><span class="tn mono">04</span>출력과 채점</a></li>
+      </ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="infer" type="button"><i></i>추론</button>
+      <ol>
+        <li><a href="#i1"><span class="tn mono">01</span>관찰 = 프리필</a></li>
+        <li><a href="#i2"><span class="tn mono">02</span>방 03 의 키</a></li>
+        <li><a href="#i3"><span class="tn mono">03</span>질의 그림 → q₁</a></li>
+        <li><a href="#i4"><span class="tn mono">04</span>1라운드 고르기</a></li>
+        <li><a href="#i5"><span class="tn mono">05</span>1라운드 읽기·판정</a></li>
+        <li><a href="#i6"><span class="tn mono">06</span>정지 검사</a></li>
+        <li><a href="#i7"><span class="tn mono">07</span>q 보정</a></li>
+        <li><a href="#i8"><span class="tn mono">08</span>2라운드</a></li>
+        <li><a href="#i9"><span class="tn mono">09</span>3·4라운드 · 보너스</a></li>
+        <li><a href="#i10"><span class="tn mono">10</span>출력과 채점</a></li>
+        <li><a href="#i11"><span class="tn mono">11</span>정답 3개 질의</a></li>
+        <li><a href="#i12"><span class="tn mono">12</span>인내의 보너스 라운드</a></li>
+        <li><a href="#i13"><span class="tn mono">13</span>비용</a></li>
+        <li><a href="#i14"><span class="tn mono">14</span>대조군</a></li>
+      </ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="train" type="button"><i></i>학습</button>
+      <ol>
+        <li><a href="#t1"><span class="tn mono">01</span>학습되는 것</a></li>
+        <li><a href="#t2"><span class="tn mono">02</span>데이터 만들기</a></li>
+        <li><a href="#t3"><span class="tn mono">03</span>그룹 드롭아웃</a></li>
+        <li><a href="#t4"><span class="tn mono">04</span>soft 구간</a></li>
+        <li><a href="#t5"><span class="tn mono">05</span>hard 구간</a></li>
+        <li><a href="#t6"><span class="tn mono">06</span>손실 ① 히트 판정</a></li>
+        <li><a href="#t7"><span class="tn mono">07</span>손실 ②③ 재현</a></li>
+        <li><a href="#t8"><span class="tn mono">08</span>손실 ④ 늦은 정답</a></li>
+        <li><a href="#t9"><span class="tn mono">09</span>합치고 역전파</a></li>
+        <li><a href="#t10"><span class="tn mono">10</span>학습 신호 전부</a></li>
+        <li><a href="#t11"><span class="tn mono">11</span>일정 · 저장</a></li>
+        <li><a href="#t12"><span class="tn mono">12</span>감시와 실패</a></li>
+      </ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="why" type="button"><i></i>설계 결정</button>
+      <ol>
+        <li><a href="#w1"><span class="tn mono">01</span>고정 k 의 천장</a></li>
+        <li><a href="#w2"><span class="tn mono">02</span>임계값 vs 라운드</a></li>
+        <li><a href="#w3"><span class="tn mono">03</span>계속 헤드 폐기</a></li>
+        <li><a href="#w4"><span class="tn mono">04</span>보정은 히트 키로</a></li>
+        <li><a href="#w5"><span class="tn mono">05</span>질의는 12층으로</a></li>
+        <li><a href="#w6"><span class="tn mono">06</span>인내의 보너스 라운드</a></li>
+        <li><a href="#w7"><span class="tn mono">07</span>추론의 여유 · 다음</a></li>
+      </ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="math" type="button"><i></i>계산만</button>
+      <ol>
+        <li><a href="#m1"><span class="tn mono">01</span>기호와 모양</a></li>
+        <li><a href="#m2"><span class="tn mono">02</span>키와 질의</a></li>
+        <li><a href="#m3"><span class="tn mono">03</span>라운드 r</a></li>
+        <li><a href="#m4"><span class="tn mono">04</span>출력</a></li>
+        <li><a href="#m5"><span class="tn mono">05</span>손실</a></li>
+        <li><a href="#m6"><span class="tn mono">06</span>연산량</a></li>
+      </ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="results" type="button"><i></i>결과</button>
+      <ol>
+        <li><a href="#r32"><span class="tn mono">32</span>N = 32</a></li>
+        <li><a href="#r64"><span class="tn mono">64</span>N = 64</a></li>
+      </ol>
+    </div>
+    <div class="toc-group">
+      <button class="toc-head" data-part="demo" type="button"><i></i>체험</button>
+      <ol><li><a href="#d1"><span class="tn mono">01</span>그려서 찾기 (N = 64)</a></li></ol>
+    </div>
+  </nav>
+</aside>
+
+<main>
+
+<header class="masthead">
+  <h1>캐시 라우팅 워크스루</h1>
+  <p class="dek">과거 캐시를 전부 읽지 않는다. 라우터가 라운드마다 <strong>지금 필요한 방 4개</strong>만 골라 그 방의 <strong>원본 KV 를 손실 없이</strong> 읽고, <strong>새로 찾은 정답이 없는 라운드가 나오면 멈추되, 질의마다 처음 한 번은 한 라운드 더 본다</strong> — 인내의 보너스 라운드, 학습이 끝난 모델에 추론 때만 켠다. 정답이 몇 개인지 몰라도 필요한 만큼 읽는다. 파랑 삼각형 질의 하나를 추론과 학습 양쪽에서 끝까지 따라간다.</p>
+  <div class="meta-row">
+    <span class="chip hot">예시의 점수·방 번호는 설명용으로 지어낸 값 — 실측은 “실측” 이라고 표시</span>
+    <span class="chip">방 32개 · 프레임 128장</span>
+    <span class="chip mono">라운드당 4칸 · 최대 8라운드</span>
+    <span class="chip">정지: 0히트 라운드 · 보너스 1번</span>
+    <span class="chip mono">d_model 256 · d_key 64 · 12층</span>
+    <span class="chip hot">본문 예시는 N = 32 기준 — N = 64 실측은 <a href="#r64">결과</a></span>
+  </div>
+</header>
+
+<!-- ═══ 데이터셋 ═══ -->
+<div class="part" id="part-data">
+<section id="stage" class="step">
+  <div class="step-head"><span class="step-num">00</span><h3>데이터셋 — 방 32개, 질의, 라벨</h3></div>
+  <div class="prose">
+    <p>에이전트가 방 32개를 하나씩 지나간다. <strong>방 하나에 도형 하나</strong>, 그 방을 <strong>프레임 4장</strong>으로 본다. 네 장은 도형이 같고 빈칸에 찍힌 잡음 점(0.8 %)만 다르다 — <span class="hi">장마다 정해진 역할은 없다.</span> 방 바닥은 16 × 16 격자다.</p>
+    <p>도형은 <strong>(색 4가지 × 원·삼각) = 조합 8가지</strong>이고, 같은 조합이 여러 방에 나온다. 그래서 “파랑 삼각형이 있던 방” 을 물으면 답이 여러 개다. 크기는 등급 0~3 (반지름 2~5칸), 위치는 방마다 무작위다.</p>
+    <p>이 문서는 아래 한 판을 끝까지 따라간다. <strong>파랑 삼각형은 방 03 · 05 · 11 · 19 · 21 · 28 — 정답 6개.</strong></p>
+  </div>
+
+  <div class="rooms">
+    <div class="room"><div class="room-top"><span class="room-id">01</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 01 초록 삼각"><polygon points="95,25 75,65 115,65" fill="var(--o-green)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-green)"></i>초록삼각 <span class="pos">(9,4) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">02</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 02 노랑 원"><circle cx="45" cy="115" r="30" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑원 <span class="pos">(4,11) 1</span></div></div>
+    <div class="room hit"><div class="room-top"><span class="room-id">03</span><span class="tag">정답</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 03 파랑 삼각"><polygon points="45,105 25,145 65,145" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑삼각 <span class="pos">(4,12) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">04</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 04 빨강 원"><circle cx="125" cy="85" r="20" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강원 <span class="pos">(12,8) 0</span></div></div>
+    <div class="room hit"><div class="room-top"><span class="room-id">05</span><span class="tag">정답</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 05 파랑 삼각"><polygon points="75,5 35,85 115,85" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑삼각 <span class="pos">(7,4) 2</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">06</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 06 노랑 삼각"><polygon points="125,95 105,135 145,135" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑삼각 <span class="pos">(12,11) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">07</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 07 빨강 삼각"><polygon points="35,35 5,95 65,95" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강삼각 <span class="pos">(3,6) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">08</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 08 초록 원"><circle cx="105" cy="125" r="20" fill="var(--o-green)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-green)"></i>초록원 <span class="pos">(10,12) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">09</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 09 노랑 원"><circle cx="65" cy="95" r="50" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑원 <span class="pos">(6,9) 3</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">10</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 10 빨강 원"><circle cx="135" cy="35" r="20" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강원 <span class="pos">(13,3) 0</span></div></div>
+    <div class="room hit"><div class="room-top"><span class="room-id">11</span><span class="tag">정답</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 11 파랑 삼각"><polygon points="125,5 95,65 155,65" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑삼각 <span class="pos">(12,3) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">12</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 12 초록 삼각"><polygon points="85,75 55,135 115,135" fill="var(--o-green)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-green)"></i>초록삼각 <span class="pos">(8,10) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">13</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 13 빨강 삼각"><polygon points="25,15 5,55 45,55" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강삼각 <span class="pos">(2,3) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">14</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 14 빨강 원"><circle cx="115" cy="65" r="30" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강원 <span class="pos">(11,6) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">15</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 15 파랑 원"><circle cx="45" cy="85" r="20" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑원 <span class="pos">(4,8) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">16</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 16 노랑 삼각"><polygon points="125,115 105,155 145,155" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑삼각 <span class="pos">(12,13) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">17</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 17 노랑 원"><circle cx="75" cy="35" r="30" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑원 <span class="pos">(7,3) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">18</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 18 빨강 삼각"><polygon points="105,65 65,145 145,145" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강삼각 <span class="pos">(10,10) 2</span></div></div>
+    <div class="room hit"><div class="room-top"><span class="room-id">19</span><span class="tag">정답</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 19 파랑 삼각"><polygon points="75,25 25,125 125,125" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑삼각 <span class="pos">(7,7) 3</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">20</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 20 초록 원"><circle cx="35" cy="125" r="30" fill="var(--o-green)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-green)"></i>초록원 <span class="pos">(3,12) 1</span></div></div>
+    <div class="room hit"><div class="room-top"><span class="room-id">21</span><span class="tag">정답</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 21 파랑 삼각"><polygon points="115,75 75,155 155,155" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑삼각 <span class="pos">(11,11) 2</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">22</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 22 빨강 원"><circle cx="65" cy="135" r="20" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강원 <span class="pos">(6,13) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">23</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 23 초록 삼각"><polygon points="35,5 15,45 55,45" fill="var(--o-green)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-green)"></i>초록삼각 <span class="pos">(3,2) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">24</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 24 노랑 원"><circle cx="105" cy="115" r="40" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑원 <span class="pos">(10,11) 2</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">25</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 25 파랑 원"><circle cx="95" cy="85" r="20" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑원 <span class="pos">(9,8) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">26</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 26 초록 원"><circle cx="55" cy="55" r="30" fill="var(--o-green)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-green)"></i>초록원 <span class="pos">(5,5) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">27</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 27 노랑 삼각"><polygon points="135,75 115,115 155,115" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑삼각 <span class="pos">(13,9) 0</span></div></div>
+    <div class="room hit"><div class="room-top"><span class="room-id">28</span><span class="tag">정답</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 28 파랑 삼각"><polygon points="35,35 15,75 55,75" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑삼각 <span class="pos">(3,5) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">29</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 29 빨강 삼각"><polygon points="85,95 55,155 115,155" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강삼각 <span class="pos">(8,12) 1</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">30</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 30 빨강 원"><circle cx="135" cy="25" r="20" fill="var(--o-red)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-red)"></i>빨강원 <span class="pos">(13,2) 0</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">31</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 31 노랑 원"><circle cx="45" cy="105" r="40" fill="var(--o-yellow)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-yellow)"></i>노랑원 <span class="pos">(4,10) 2</span></div></div>
+    <div class="room"><div class="room-top"><span class="room-id">32</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 32 파랑 원"><circle cx="105" cy="45" r="30" fill="var(--o-blue)"/></svg></div><div class="room-legend"><i class="sw" style="background:var(--o-blue)"></i>파랑원 <span class="pos">(10,4) 1</span></div></div>
+  </div>
+  <figcaption>방 32개 전부. 테두리가 켜진 <strong>6개가 이 문서의 질의(파랑 삼각형)의 정답</strong>이다. 같은 도형인데 <strong>위치와 크기가 방마다 다르다.</strong> <span class="mono">(x,y) s</span> = 격자 좌표와 크기 등급(0~3). 그림은 반지름을 등급 + 2 칸으로 그렸다.</figcaption>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>조합</th><th class="num">방 수</th><th>어느 방</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td><i class="sw" style="background:var(--o-blue)"></i> 파랑 삼각</td><td class="num">6</td><td class="mono">03 · 05 · 11 · 19 · 21 · 28 ← 질의 대상</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-blue)"></i> 파랑 원</td><td class="num">3</td><td class="mono">15 · 25 · 32 ← 색이 같아 헷갈리기 쉽다</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-red)"></i> 빨강 삼각</td><td class="num">4</td><td class="mono">07 · 13 · 18 · 29</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-red)"></i> 빨강 원</td><td class="num">5</td><td class="mono">04 · 10 · 14 · 22 · 30</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-green)"></i> 초록 삼각</td><td class="num">3</td><td class="mono">01 · 12 · 23</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-green)"></i> 초록 원</td><td class="num">3</td><td class="mono">08 · 20 · 26 ← 11번 절의 두 번째 질의</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-yellow)"></i> 노랑 삼각</td><td class="num">3</td><td class="mono">06 · 16 · 27</td></tr>
+        <tr><td><i class="sw" style="background:var(--o-yellow)"></i> 노랑 원</td><td class="num">5</td><td class="mono">02 · 09 · 17 · 24 · 31</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="duo">
+    <div class="card" style="margin-top:0">
+      <div class="cap">질의 — 사용자가 그린 그림 한 장</div>
+      <div class="map" style="max-width:190px">
+        <svg viewBox="0 0 160 160" role="img" aria-label="질의: 파랑 삼각형 (11,9) 크기 0"><polygon points="115,75 95,115 135,115" fill="var(--o-blue)"/></svg>
+      </div>
+      <figcaption>파랑 삼각형 @ <span class="mono">(11,9)</span> 크기 0. <strong>위치·크기는 무작위</strong>라 어느 방과도 상관없다. 색·모양만 단서다. <strong>색·모양을 따로 입력하는 칸은 없다</strong> — 그림 자체가 입력이다.</figcaption>
+    </div>
+    <div class="card" style="margin-top:0">
+      <div class="cap">라벨 — 채점과 손실에만 쓴다</div>
+<pre>히트   질의 8 × 방 32
+       파랑삼각 질의 → 03·05·11·19·21·28 이 1
+위치   방마다 격자 칸 번호 y·16 + x
+       방 03 (4,12) → 12·16 + 4 = <span class="a">196</span>
+크기   방마다 등급 0~3
+       방 03 → <span class="a">0</span>
+
+<span class="c">에피소드 하나에 질의 8개 = 조합마다 하나.
+모델 입력에는 라벨이 들어가지 않는다.</span></pre>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>생성 규칙: 조합마다 방 2 ~ 7개, 합이 32.</strong> 이건 <em>데이터를 만드는 규칙</em>일 뿐 모델 구조의 제약이 아니다. 모델은 새 히트가 안 나올 때까지 라운드를 돌고(처음 한 번은 한 라운드 더), 최대 라운드 8 × 4칸 = <strong>방 32개 전부</strong>까지 읽을 수 있다. 정답이 몇 개든 “나올 때까지” 읽는다. 실측: 학습 때 한 번도 못 본 정답 8 · 10 · 12 · 16개 질의도 스스로 멈추며 풀었다 (<a href="#w7">설계 결정 07</a>).
+  </div>
+
+  <div class="note">
+    <strong>차원에는 의미가 없다.</strong> 실제 모델은 <span class="mono">d_model = 256</span> 이고 어느 차원도 사람이 읽을 수 있는 무언가(색·모양 등)를 뜻하지 않는다. 프레임 4장에도 정해진 역할이 없다. 이 문서의 2차원 그림은 모두 <strong>개념도</strong>다.
+  </div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>규모</th><th class="num">방</th><th class="num">조합</th><th class="num">정답 6개 질의를 4라운드에 끝낼 때 읽는 방</th><th class="num">읽기 비율</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td>← 이 문서</td><td class="num">32</td><td class="num">8</td><td class="num">16</td><td class="num">50.0 %</td></tr>
+        <tr><td></td><td class="num">64</td><td class="num">16</td><td class="num">16</td><td class="num">25.0 %</td></tr>
+        <tr><td></td><td class="num">128</td><td class="num">32</td><td class="num">16</td><td class="num">12.5 %</td></tr>
+        <tr><td></td><td class="num">256</td><td class="num">64</td><td class="num">16</td><td class="num">6.3 %</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figcaption><strong>읽는 양은 방 개수가 아니라 정답 개수로 정해진다.</strong> 방이 늘어도 필요한 방만 읽으니 비율이 떨어진다. (표는 “4라운드 = 정답을 담는 2 + 확인용 빈 라운드 1 + 인내의 보너스 라운드 1” 가정으로 계산한 산수다.)</figcaption>
+</section>
+</div><!-- /part-data -->
+
+<!-- ═══ 전체 흐름 ═══ -->
+<div class="part" id="part-flow">
+<div class="band">
+  <div class="k">Overview</div>
+  <h2>전체 흐름 — 그림 한 장에서 방 여섯 개를 다시 그리기까지</h2>
+  <p>방 32개를 먼저 보고 캐시를 쌓는다. 사용자가 파랑 삼각형을 그리면, 라우터가 라운드마다 방 4개를 골라 읽고, 새 정답이 안 나오는 라운드에서 멈춘다 — 질의마다 처음 한 번은 한 라운드 더 본다. 찾은 방마다 <strong>그 방에 있던 자리와 크기 그대로</strong> 다시 그린다.</p>
+</div>
+
+<section id="f0" class="step">
+  <div class="step-head"><span class="step-num">00</span><h3>한눈에 — 무엇을 넣고 무엇이 나오나</h3></div>
+  <div class="io">
+    <div class="io-box">
+      <div class="cap">입력 — 사용자가 그린 질의 그림 한 장</div>
+      <div class="io-query">
+        <div class="map" style="max-width:340px;width:100%"><svg viewBox="0 0 160 160" role="img" aria-label="질의: 파랑 삼각형 (11,9) 크기 0"><polygon points="115,75 95,115 135,115" fill="var(--o-blue)"/></svg></div>
+        <ul class="io-keys">
+          <li><span class="src on">단서</span><strong>색 · 모양</strong> — 파랑 · 삼각. 어느 방을 읽을지는 이것만으로 정한다</li>
+          <li><span class="src">무작위</span><strong>위치 · 크기</strong> — (11,9) · 크기 0. 그림에 있긴 하지만 정답 방과 무관해 단서가 아니다</li>
+          <li><span class="src">모름</span><strong>정답 개수</strong> — 모델은 몇 방이 답인지 모른 채 시작한다</li>
+        </ul>
+      </div>
+    </div>
+    <div class="io-mid">
+      <svg viewBox="0 0 100 24" aria-hidden="true"><line x1="4" y1="12" x2="88" y2="12" stroke="var(--accent)" stroke-width="2.4"/><polygon points="86,4 98,12 86,20" fill="var(--accent)"/></svg>
+      <span>캐시 32방 중<br>필요한 방만 골라 읽기<small>라운드마다 4칸</small></span>
+    </div>
+    <div class="io-box out">
+      <div class="cap">출력 — 방 번호 + 그 방의 도형 재현</div>
+      <div class="io-tiles">
+          <div class="io-tile"><div class="t"><b>03</b><span>(4,12) 0</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 03 재현 (4,12) 0"><polygon points="45,105 25,145 65,145" fill="var(--o-blue)"/></svg></div></div>
+          <div class="io-tile"><div class="t"><b>05</b><span>(7,4) 2</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 05 재현 (7,4) 2"><polygon points="75,5 35,85 115,85" fill="var(--o-blue)"/></svg></div></div>
+          <div class="io-tile"><div class="t"><b>11</b><span>(12,3) 1</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 11 재현 (12,3) 1"><polygon points="125,5 95,65 155,65" fill="var(--o-blue)"/></svg></div></div>
+          <div class="io-tile"><div class="t"><b>19</b><span>(7,7) 3</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 19 재현 (7,7) 3"><polygon points="75,25 25,125 125,125" fill="var(--o-blue)"/></svg></div></div>
+          <div class="io-tile"><div class="t"><b>21</b><span>(11,11) 2</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 21 재현 (11,11) 2"><polygon points="115,75 75,155 155,155" fill="var(--o-blue)"/></svg></div></div>
+          <div class="io-tile"><div class="t"><b>28</b><span>(3,5) 0</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 28 재현 (3,5) 0"><polygon points="35,35 15,75 55,75" fill="var(--o-blue)"/></svg></div></div>
+      </div>
+      <ul class="io-keys">
+        <li><span class="src on">출력</span><strong>어느 방</strong> — 읽고 히트로 판정한 칸이 가리키는 방 (03 · 05 · 11 · 19 · 21 · 28). 방 번호를 따로 예측하지 않는다</li>
+        <li><span class="src on">출력</span><strong>위치 · 크기</strong> — 그 방의 캐시에서 읽어 재현한다 (위치 256지선다 · 크기 4지선다)</li>
+        <li><span class="src">질의에서</span><strong>색 · 모양</strong> — 모델이 출력하지 않는다. 질의에서 이미 알고 있으니 그 색 · 모양으로 그린다</li>
+      </ul>
+    </div>
+  </div>
+  <figcaption>이 문서의 예시다. 질의 그림의 위치·크기 <span class="mono">(11,9) 0</span> 은 무작위라 정보가 없는데, 출력한 여섯 방의 위치·크기는 방마다 다르고 전부 맞았다 — <strong>그 방들의 캐시를 실제로 읽었다는 증거</strong>다. 가운데 “골라 읽기” 과정은 아래 01~04 에서, 한 라운드씩은 추론 파트에서 따라간다.</figcaption>
+</section>
+
+<section id="f1" class="step">
+  <div class="step-head"><span class="step-num">01</span><h3>입력 두 가지 — 관찰(프리필)과 질의 그림</h3></div>
+  <div class="duo">
+    <div class="card" style="margin-top:0">
+      <div class="cap">① 관찰 — LLM 의 프리필에 해당</div>
+<pre>방 32개 × 프레임 4장 = 128장
+  → 장마다 256차원 벡터
+  → 12층 트랜스포머 (인과 어텐션)
+  → <span class="a">층마다 K·V 를 캐시에 저장</span>   12층 × 128개
+  → 방마다 라우팅 키 1개 (64차원)
+
+<span class="c">원본 K·V 는 하나도 버리지 않는다.</span></pre>
+    </div>
+    <div class="card" style="margin-top:0">
+      <div class="cap">② 질의 — LLM 의 디코딩 스텝에 해당</div>
+<pre>사용자가 16×16 그림판에 파랑 삼각형
+  → 관찰 프레임과 같은 격자
+  → <span class="a">같은 12층을 혼자 통과</span> (캐시는 안 읽음)
+  → q₁ (64차원, 길이 1)
+
+<span class="c">정답이 몇 개인지는 모른다.</span></pre>
+    </div>
+  </div>
+</section>
+
+<section id="f2" class="step">
+  <div class="step-head"><span class="step-num">02</span><h3>방마다 키 — <span class="mono">u</span> 로 접고 <span class="mono">W</span> 로 투영</h3></div>
+  <div class="prose">
+    <p>방 03 의 마지막 층 상태 4개를 <strong>벡터 하나</strong>로 접는다. 가중치는 균등 평균이 아니라 학습된 프로브 <span class="mono">u</span> 가 정하고, <span class="mono">W</span> 가 64차원 라우팅 축으로 보낸 뒤 길이를 1로 맞춘다. 방 32개 모두 한 번씩 — 질의가 무엇이든 키는 같다.</p>
+  </div>
+  <figure class="dia">
+    <svg viewBox="0 0 700 230" role="img" aria-label="방의 프레임 4개가 프로브 u로 가중합되어 pooled가 되고, 투영 W와 정규화를 거쳐 라우팅 키가 된다">
+      <defs><marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="var(--accent)"/></marker></defs>
+      <text x="14" y="28" font-size="11.5" fill="currentColor" opacity=".72" font-family="IBM Plex Sans KR, sans-serif">방 03 의 프레임 4장 (마지막 층)</text>
+      <g>
+        <rect x="14" y="42" width="96" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <rect x="14" y="68" width="96" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <rect x="14" y="94" width="96" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <rect x="14" y="120" width="96" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".55"/>
+        <text x="62" y="56" text-anchor="middle" font-size="10.5" fill="currentColor" font-family="IBM Plex Mono, monospace">h₀</text>
+        <text x="62" y="82" text-anchor="middle" font-size="10.5" fill="currentColor" font-family="IBM Plex Mono, monospace">h₁</text>
+        <text x="62" y="108" text-anchor="middle" font-size="10.5" fill="currentColor" font-family="IBM Plex Mono, monospace">h₂</text>
+        <text x="62" y="134" text-anchor="middle" font-size="10.5" fill="currentColor" font-family="IBM Plex Mono, monospace">h₃</text>
+      </g>
+      <text x="62" y="160" text-anchor="middle" font-size="10" fill="currentColor" opacity=".55" font-family="IBM Plex Mono, monospace">4 × 256</text>
+      <line x1="114" y1="91" x2="176" y2="91" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#fa)"/>
+      <text x="145" y="82" text-anchor="middle" font-size="11.5" fill="var(--accent)" font-weight="600" font-family="IBM Plex Mono, monospace">u</text>
+      <text x="145" y="108" text-anchor="middle" font-size="9.5" fill="currentColor" opacity=".6" font-family="IBM Plex Sans KR, sans-serif">모델 전체에 1개</text>
+      <g>
+        <rect x="180" y="42" width="52" height="98" rx="2" fill="none" stroke="var(--accent)" stroke-width="1.3"/>
+        <rect x="186" y="48" width="4" height="8" fill="var(--accent)" opacity=".3"/>
+        <rect x="186" y="74" width="40" height="8" fill="var(--accent)"/>
+        <rect x="186" y="100" width="40" height="8" fill="var(--accent)"/>
+        <rect x="186" y="126" width="25" height="8" fill="var(--accent)" opacity=".8"/>
+      </g>
+      <text x="206" y="160" text-anchor="middle" font-size="10" fill="currentColor" opacity=".55" font-family="IBM Plex Mono, monospace">w = softmax(u·h)</text>
+      <line x1="236" y1="91" x2="292" y2="91" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#fa)"/>
+      <text x="264" y="82" text-anchor="middle" font-size="10" fill="currentColor" opacity=".65" font-family="IBM Plex Sans KR, sans-serif">가중합</text>
+      <rect x="296" y="80" width="96" height="22" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text x="344" y="95" text-anchor="middle" font-size="10.5" fill="currentColor" font-family="IBM Plex Mono, monospace">pooled</text>
+      <text x="344" y="120" text-anchor="middle" font-size="10" fill="currentColor" opacity=".55" font-family="IBM Plex Mono, monospace">1 × 256</text>
+      <line x1="396" y1="91" x2="452" y2="91" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#fa)"/>
+      <text x="424" y="82" text-anchor="middle" font-size="11.5" fill="var(--accent)" font-weight="600" font-family="IBM Plex Mono, monospace">W</text>
+      <rect x="456" y="82" width="62" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text x="487" y="95" text-anchor="middle" font-size="10" fill="currentColor" font-family="IBM Plex Mono, monospace">1 × 64</text>
+      <line x1="522" y1="91" x2="570" y2="91" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#fa)"/>
+      <text x="546" y="82" text-anchor="middle" font-size="10" fill="currentColor" opacity=".65" font-family="IBM Plex Sans KR, sans-serif">정규화</text>
+      <circle cx="620" cy="91" r="30" fill="none" stroke="currentColor" stroke-width="1" opacity=".3"/>
+      <line x1="620" y1="91" x2="646" y2="76" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#fa)"/>
+      <text x="620" y="145" text-anchor="middle" font-size="11.5" fill="var(--accent)" font-weight="600" font-family="IBM Plex Mono, monospace">k₀₃</text>
+      <text x="620" y="162" text-anchor="middle" font-size="9.5" fill="currentColor" opacity=".55" font-family="IBM Plex Sans KR, sans-serif">길이 1</text>
+      <text x="14" y="205" font-size="11" fill="currentColor" opacity=".7" font-family="IBM Plex Sans KR, sans-serif">질의도 같은 공간으로 —</text>
+      <text x="152" y="205" font-size="11" fill="var(--accent)" font-family="IBM Plex Mono, monospace">q₁ = normalize(W_q · 질의를 12층에 통과시킨 상태)</text>
+    </svg>
+    <figcaption>키는 <strong>어느 방을 펼칠지 정하는 주소 라벨</strong>이다. 방 하나의 원본 KV 는 12층 × 4장 × 256 × 2 = 24,576 개 값인데 키는 64개다. 위치·크기는 키에 담지 않는다 — 고른 뒤 원본 KV 에서 읽는다.</figcaption>
+  </figure>
+</section>
+
+<section id="f3" class="step">
+  <div class="step-head"><span class="step-num">03</span><h3>라운드 루프 — 고르고, 읽고, 멈출지 보고, 보정한다</h3></div>
+  <figure class="dia">
+    <svg viewBox="0 0 680 462" role="img" aria-label="라운드 루프: 점수 계산, 읽은 방과 드롭 방 가림, 상위 4개 선택, 4칸 읽기와 판정. 새 히트가 있으면 히트 방 키 평균으로 q 보정 후 다음 라운드. 0개면 보너스가 남았는지 보고, 남았으면 q 를 그대로 둔 채 한 라운드 더, 이미 썼으면 정지">
+      <defs><marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="var(--accent)"/></marker></defs>
+      <g font-family="IBM Plex Sans KR, sans-serif" font-size="12" fill="currentColor">
+        <rect x="20" y="20" width="200" height="48" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <text x="120" y="40" text-anchor="middle">점수 = cos(q, 키 32개)</text>
+        <text x="120" y="57" text-anchor="middle" font-size="10" opacity=".6">1라운드는 q₁</text>
+        <rect x="250" y="20" width="200" height="48" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <text x="350" y="40" text-anchor="middle">읽은 방 · 드롭 방 가림</text>
+        <text x="350" y="57" text-anchor="middle" font-size="10" opacity=".6">점수 −30 → 다시 안 뽑힘</text>
+        <rect x="480" y="20" width="180" height="48" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <text x="570" y="49" text-anchor="middle">상위 4개 선택</text>
+        <rect x="480" y="110" width="180" height="58" rx="2" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="570" y="133" text-anchor="middle" fill="var(--accent)" font-weight="600">4칸 읽기 → 판정 · 재현</text>
+        <text x="570" y="151" text-anchor="middle" font-size="10" opacity=".7">칸마다 자기 방 K·V 만 12층</text>
+        <polygon points="570,205 660,245 570,285 480,245" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <text x="570" y="241" text-anchor="middle">이번 라운드에</text>
+        <text x="570" y="257" text-anchor="middle">새 히트 있나?</text>
+        <rect x="240" y="217" width="200" height="56" rx="2" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="340" y="240" text-anchor="middle" fill="var(--accent)" font-weight="600">q 보정</text>
+        <text x="340" y="258" text-anchor="middle" font-size="10" opacity=".75">q ← normalize(q + 히트 방 키 평균)</text>
+        <polygon points="570,318 660,358 570,398 480,358" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+        <text x="570" y="354" text-anchor="middle" fill="var(--accent)" font-weight="600">보너스 남았나?</text>
+        <text x="570" y="370" text-anchor="middle" font-size="10" opacity=".7">질의당 1번 · 추론만</text>
+        <rect x="480" y="418" width="180" height="36" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"/>
+        <text x="570" y="441" text-anchor="middle" fill="var(--accent)" font-weight="600">정지 → 출력</text>
+      </g>
+      <g stroke="var(--accent)" stroke-width="1.6" fill="none">
+        <line x1="220" y1="44" x2="246" y2="44" marker-end="url(#fl)"/>
+        <line x1="450" y1="44" x2="476" y2="44" marker-end="url(#fl)"/>
+        <line x1="570" y1="68" x2="570" y2="106" marker-end="url(#fl)"/>
+        <line x1="570" y1="168" x2="570" y2="201" marker-end="url(#fl)"/>
+        <line x1="480" y1="245" x2="444" y2="245" marker-end="url(#fl)"/>
+        <polyline points="240,245 120,245 120,72" marker-end="url(#fl)"/>
+        <line x1="570" y1="285" x2="570" y2="314" marker-end="url(#fl)"/>
+        <polyline points="480,358 64,358 64,72" stroke-dasharray="5 4" marker-end="url(#fl)"/>
+        <line x1="570" y1="398" x2="570" y2="414" marker-end="url(#fl)"/>
+      </g>
+      <g font-family="IBM Plex Sans KR, sans-serif" font-size="10.5" fill="var(--accent)">
+        <text x="462" y="238" text-anchor="middle">있음</text>
+        <text x="586" y="304">0개</text>
+        <text x="586" y="410">이미 씀 → 정지</text>
+        <text x="470" y="350" text-anchor="end" font-weight="600">남음 → 인내의 보너스 라운드</text>
+        <text x="470" y="376" text-anchor="end" fill="currentColor" opacity=".7">보정 없이 q 그대로 한 라운드 더 = 그 라운드의 5~8위</text>
+        <text x="128" y="160">다음 라운드</text>
+        <text x="128" y="175" fill="currentColor" opacity=".6">(최대 8라운드)</text>
+      </g>
+    </svg>
+    <figcaption>이 문서의 한 판: <strong>1라운드</strong> 03 · 11 · 19 히트 (25 아님) → 보정 → <strong>2라운드</strong> 28 · 05 · 21 히트 (15 아님) → 보정 → <strong>3라운드</strong> 전부 아님 → 보너스가 남아 → <strong>4라운드(보너스)</strong> 전부 아님 → 보너스를 이미 써서 정지. 16칸을 읽었다. 보너스 분기는 <strong>추론에서만</strong> 쓴다 — 학습 hard 구간은 0히트면 바로 멈춘다 (<a href="#t5">학습 05</a>).</figcaption>
+  </figure>
+  <div class="premise"><span class="k">보정의 전제</span>정답 방들의 키는 코사인으로 서로 뭉쳐 있다. 그래서 확인된 정답의 키 쪽으로 q 를 당기면 아직 못 읽은 정답의 순위가 올라간다.</div>
+</section>
+
+<section id="f4" class="step">
+  <div class="step-head"><span class="step-num">04</span><h3>출력과 채점 — 방마다 다시 그린다</h3></div>
+  <div class="card">
+    <div class="cap">질의 하나 → 방 6개, 각자 제 자리 제 크기로</div>
+    <div class="rooms" style="grid-template-columns:repeat(auto-fit,minmax(112px,1fr))">
+      <div class="room" style="border-style:dashed"><div class="room-top"><span class="room-id">질의</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="질의 그림"><polygon points="115,75 95,115 135,115" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(11,9) 0 · 무작위</span></div></div>
+      <div class="room hit"><div class="room-top"><span class="room-id">03</span><span class="tag">재현</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 03 재현"><polygon points="45,105 25,145 65,145" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(4,12) 0</span></div></div>
+      <div class="room hit"><div class="room-top"><span class="room-id">05</span><span class="tag">재현</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 05 재현"><polygon points="75,5 35,85 115,85" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(7,4) 2</span></div></div>
+      <div class="room hit"><div class="room-top"><span class="room-id">11</span><span class="tag">재현</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 11 재현"><polygon points="125,5 95,65 155,65" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(12,3) 1</span></div></div>
+      <div class="room hit"><div class="room-top"><span class="room-id">19</span><span class="tag">재현</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 19 재현"><polygon points="75,25 25,125 125,125" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(7,7) 3</span></div></div>
+      <div class="room hit"><div class="room-top"><span class="room-id">21</span><span class="tag">재현</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 21 재현"><polygon points="115,75 75,155 155,155" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(11,11) 2</span></div></div>
+      <div class="room hit"><div class="room-top"><span class="room-id">28</span><span class="tag">재현</span></div><div class="map"><svg viewBox="0 0 160 160" role="img" aria-label="방 28 재현"><polygon points="35,35 15,75 55,75" fill="var(--o-blue)"/></svg></div><div class="room-legend"><span class="pos">(3,5) 0</span></div></div>
+    </div>
+    <figcaption>맨 왼쪽이 입력, 나머지 여섯이 출력. 도형은 전부 같은데 <strong>자리와 크기가 다 다르다</strong> — 질의의 <span class="mono">(11,9) 0</span> 은 무작위라 정보가 없으니, 여섯 방의 자리·크기를 맞혔다는 건 <strong>그 방들의 KV 를 실제로 읽었다</strong>는 뜻이다.</figcaption>
+  </div>
+  <div class="duo">
+    <div class="stat"><div class="l">읽은 방</div><div class="v">16 / 32</div><div class="s">50 %. 4라운드 × 4칸 (확인 1 + 보너스 1 포함)</div></div>
+    <div class="stat"><div class="l">전부완수</div><div class="v" style="color:var(--good)">1</div><div class="s">답 집합이 정답과 같고, 여섯 방의 위치·크기가 모두 맞음</div></div>
+    <div class="stat"><div class="l">★완수</div><div class="v" style="color:var(--good)">6 / 6</div><div class="s">정답 대비 푼 방의 비율</div></div>
+  </div>
+</section>
+</div><!-- /part-flow -->
+
+<!-- ═══ 추론 ═══ -->
+<div class="part" id="part-infer">
+<div class="band">
+  <div class="k">Part 1</div>
+  <h2>추론 — 학습이 끝난 모델이 한 판을 처리한다</h2>
+  <p>관찰 방 32개 → 사용자가 그린 파랑 삼각형. 정답은 방 <strong>03 · 05 · 11 · 19 · 21 · 28</strong> 과 각 방의 위치·크기지만, <strong>모델은 정답이 6개라는 걸 모른다.</strong> 이 파트의 점수는 모두 설명용으로 지어낸 값이다.</p>
+</div>
+
+<section id="i1" class="step">
+  <div class="step-head"><span class="step-num">01</span><h3>관찰 — 캐시를 쌓는다 (프리필)</h3></div>
+  <div class="prose">
+    <p>방 03 을 지나는 동안 프레임 4장이 들어온다. 한 장은 16 × 16 격자이고 칸마다 0(빈칸) 또는 1~4(색) 값이다. 칸마다 원핫으로 펼치면 1,280 개 숫자, 선형층을 거쳐 <strong>256차원 벡터 하나</strong>가 된다.</p>
+    <p>128장(방 32 × 4장)을 순서대로 <strong>12층 트랜스포머</strong>에 통과시킨다. 인과 어텐션이라 앞 방은 볼 수 있고 뒤 방은 못 본다. 층마다 K·V 가 남는다 — <span class="hi">이게 LLM 의 프리필이 KV 캐시를 채우는 단계다.</span></p>
+  </div>
+  <div class="card">
+    <div class="cap">캐시에 남는 것</div>
+<pre>프레임 128장 × 12층 × (K, V)   각 256차원
+방 03 의 몫 = 프레임 4장 × 12층 × 2 × 256 = <span class="a">24,576</span> 개 값
+
+<span class="c">압축하지 않는다. 요약하지 않는다. 안 읽는 방도 그대로 남는다.</span></pre>
+  </div>
+</section>
+
+<section id="i2" class="step">
+  <div class="step-head"><span class="step-num">02</span><h3>방 03 의 키 — 주소 라벨을 한 번 만든다</h3></div>
+  <div class="prose">
+    <p>방 03 의 마지막 층 상태 <span class="mono">h₀ … h₃</span> 에 모델 전체에 하나뿐인 프로브 <span class="mono">u</span> 를 댄다.</p>
+  </div>
+  <div class="card">
+<pre>점수   aᵢ = u · hᵢ
+가중치 w  = softmax(a₀, a₁, a₂, a₃) = [0.03, 0.37, 0.37, 0.23]      <span class="c">← 지어낸 값</span>
+접기   pooled = 0.03·h₀ + 0.37·h₁ + 0.37·h₂ + 0.23·h₃             <span class="c">256차원</span>
+투영   k₀₃ = normalize(W · pooled)                                <span class="c">64차원, 길이 1</span></pre>
+    <figcaption><span class="mono">u</span> 의 숫자를 들여다봐도 “무엇을 보려는 프로브인지” 는 알 수 없다. 관찰할 수 있는 건 <strong>결과로 나온 가중치 분포</strong>뿐이다 — 여기선 <span class="mono">h₀</span> 을 거의 무시했다. 균등 평균이었다면 전부 0.25 였을 자리다.</figcaption>
+  </div>
+  <div class="note">방 32개 모두 이렇게 해서 <strong>키 32개</strong>가 준비된다. 키는 질의와 무관하게 만들어지므로 한 번 만들어 두고 모든 질의가 재사용한다.</div>
+</section>
+
+<section id="i3" class="step">
+  <div class="step-head"><span class="step-num">03</span><h3>질의 그림 → q₁</h3></div>
+  <div class="prose">
+    <p>사용자가 그림판에 파랑 삼각형을 <span class="mono">(11,9)</span> 크기 0 으로 그렸다. 이 그림은 관찰 프레임과 똑같은 형식의 격자가 되고, <strong>관찰과 같은 12층을 혼자 통과한다</strong> — 자기 자신만 보고 캐시는 읽지 않는다. 마지막 층 상태를 <span class="mono">W_q</span> 로 투영하고 길이를 1로 맞춘 게 <span class="mono">q₁</span> 이다.</p>
+  </div>
+  <div class="card">
+<pre>질의 격자 → 256차원 → 12층 (질의 한 장만) → 정규화 → W_q → normalize → <span class="a">q₁</span>  (64차원)</pre>
+  </div>
+  <div class="note">
+    <strong>왜 12층을 통과시키나.</strong> 질의 도형은 위치·크기가 무작위다. 픽셀에 선형 투영만 걸면 “위치와 상관없이 모양을 가리는” 일을 못 한다 — 반지름 2 에서 <strong>원과 삼각형은 둘 다 13픽셀</strong>이라 픽셀 개수로도 안 갈린다. 실측: 선형 질의일 때 q 만 오라클로 바꾸자 정답을 전부 읽은 질의가 0.835 → 1.000 이 됐다 (병목이 q 였다). → <a href="#w5">설계 결정 05</a>
+  </div>
+</section>
+
+<section id="i4" class="step">
+  <div class="step-head"><span class="step-num">04</span><h3>1라운드 — 코사인 점수 32개와 상위 4개</h3></div>
+  <div class="card">
+    <div class="cap">cos(q₁, 키) · 32개 전부 · 내림차순 (지어낸 값)</div>
+    <div class="bars">
+      <div class="bar-row pick"><span class="bar-lab">방 03</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:45.5%"></i></div><span class="bar-val">.91</span><b class="bd hit">선택</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 11</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:44%"></i></div><span class="bar-val">.88</span><b class="bd hit">선택</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 25</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:43%"></i></div><span class="bar-val">.86</span><b class="bd hit">선택</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 19</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:42.5%"></i></div><span class="bar-val">.85</span><b class="bd hit">선택</b></div>
+      <div class="cutline"><span>상위 4개 — 이번 라운드는 여기까지 읽는다</span></div>
+      <div class="bar-row"><span class="bar-lab">방 05</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:40%"></i></div><span class="bar-val">.80</span><b class="bd wait">정답 · 대기</b></div>
+      <div class="bar-row"><span class="bar-lab">방 15</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:39%"></i></div><span class="bar-val">.78</span><b class="bd no">비정답</b></div>
+      <div class="bar-row"><span class="bar-lab">방 21</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:38.5%"></i></div><span class="bar-val">.77</span><b class="bd wait">정답 · 대기</b></div>
+      <div class="bar-row"><span class="bar-lab">방 32</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:38%"></i></div><span class="bar-val">.76</span><b class="bd no">비정답</b></div>
+      <div class="bar-row miss"><span class="bar-lab">방 28</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:37%"></i></div><span class="bar-val">.74</span><b class="bd wait">정답 · 9위</b></div>
+      <div class="bar-row skip"><span class="bar-lab">방 07</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:26%"></i></div><span class="bar-val">.52</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 13</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:25%"></i></div><span class="bar-val">.50</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 18</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:24.5%"></i></div><span class="bar-val">.49</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 29</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:23.5%"></i></div><span class="bar-val">.47</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 01</span><span class="bar-sub">초록삼각</span><div class="track"><i class="fill p" style="width:22.5%"></i></div><span class="bar-val">.45</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 12</span><span class="bar-sub">초록삼각</span><div class="track"><i class="fill p" style="width:22%"></i></div><span class="bar-val">.44</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 23</span><span class="bar-sub">초록삼각</span><div class="track"><i class="fill p" style="width:21%"></i></div><span class="bar-val">.42</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 06</span><span class="bar-sub">노랑삼각</span><div class="track"><i class="fill p" style="width:20%"></i></div><span class="bar-val">.40</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 16</span><span class="bar-sub">노랑삼각</span><div class="track"><i class="fill p" style="width:19.5%"></i></div><span class="bar-val">.39</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 27</span><span class="bar-sub">노랑삼각</span><div class="track"><i class="fill p" style="width:18.5%"></i></div><span class="bar-val">.37</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 04</span><span class="bar-sub">빨강원</span><div class="track"><i class="fill p" style="width:10.5%"></i></div><span class="bar-val">.21</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 10</span><span class="bar-sub">빨강원</span><div class="track"><i class="fill p" style="width:10%"></i></div><span class="bar-val">.20</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 14</span><span class="bar-sub">빨강원</span><div class="track"><i class="fill p" style="width:9%"></i></div><span class="bar-val">.18</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 22</span><span class="bar-sub">빨강원</span><div class="track"><i class="fill p" style="width:8.5%"></i></div><span class="bar-val">.17</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 30</span><span class="bar-sub">빨강원</span><div class="track"><i class="fill p" style="width:7.5%"></i></div><span class="bar-val">.15</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 08</span><span class="bar-sub">초록원</span><div class="track"><i class="fill p" style="width:6%"></i></div><span class="bar-val">.12</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 20</span><span class="bar-sub">초록원</span><div class="track"><i class="fill p" style="width:5%"></i></div><span class="bar-val">.10</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 26</span><span class="bar-sub">초록원</span><div class="track"><i class="fill p" style="width:4.5%"></i></div><span class="bar-val">.09</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 02</span><span class="bar-sub">노랑원</span><div class="track"><i class="fill n" style="width:2.5%"></i></div><span class="bar-val">−.05</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 09</span><span class="bar-sub">노랑원</span><div class="track"><i class="fill n" style="width:3.5%"></i></div><span class="bar-val">−.07</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 17</span><span class="bar-sub">노랑원</span><div class="track"><i class="fill n" style="width:4%"></i></div><span class="bar-val">−.08</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 24</span><span class="bar-sub">노랑원</span><div class="track"><i class="fill n" style="width:5%"></i></div><span class="bar-val">−.10</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 31</span><span class="bar-sub">노랑원</span><div class="track"><i class="fill n" style="width:6%"></i></div><span class="bar-val">−.12</span></div>
+    </div>
+    <figcaption><strong>q₁ 이 살짝 빗나갔다.</strong> 색이 같은 파랑 원 25 가 3위로 끼어들었고, 파랑 원 15 · 32 도 정답 21 · 28 보다 위에 있다. <strong>정답 28 은 9위</strong>라 이대로면 1라운드에 못 읽는다.</figcaption>
+  </div>
+</section>
+
+<section id="i5" class="step">
+  <div class="step-head"><span class="step-num">05</span><h3>1라운드 읽기와 판정 — 칸마다 자기 방만 읽는다</h3></div>
+  <div class="prose">
+    <p>고른 4개 방마다 <strong>칸(슬롯)</strong> 하나가 생긴다. 칸은 질의 그림의 임베딩에서 출발해 <strong>12층 각각에서 자기 방의 K·V 4개만</strong> 읽는다. 다른 방은 보지 않으므로 판정과 재현이 그 방 하나에 귀속된다.</p>
+  </div>
+  <div class="card">
+    <div class="cap">캐시 32방 중 1라운드에 읽은 4방</div>
+    <div class="kvgrid">
+      <div class="g"><b></b><b></b><b></b><b></b><span>01</span></div><div class="g"><b></b><b></b><b></b><b></b><span>02</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>03</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>04</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>05</span></div><div class="g"><b></b><b></b><b></b><b></b><span>06</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>07</span></div><div class="g"><b></b><b></b><b></b><b></b><span>08</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>09</span></div><div class="g"><b></b><b></b><b></b><b></b><span>10</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>11</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>12</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>13</span></div><div class="g"><b></b><b></b><b></b><b></b><span>14</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>15</span></div><div class="g"><b></b><b></b><b></b><b></b><span>16</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>17</span></div><div class="g"><b></b><b></b><b></b><b></b><span>18</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>19</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>20</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>21</span></div><div class="g"><b></b><b></b><b></b><b></b><span>22</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>23</span></div><div class="g"><b></b><b></b><b></b><b></b><span>24</span></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>25</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>26</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>27</span></div><div class="g"><b></b><b></b><b></b><b></b><span>28</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>29</span></div><div class="g"><b></b><b></b><b></b><b></b><span>30</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>31</span></div><div class="g"><b></b><b></b><b></b><b></b><span>32</span></div>
+    </div>
+    <figcaption>진하게 = 읽었고 정답인 방, 연하게 = 읽었지만 비정답, 빈칸 = 안 읽음. 네 칸 = 방 4개 × 프레임 4장의 K·V.</figcaption>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>칸</th><th>실제 내용</th><th>히트 판정</th><th class="num">위치 재현</th><th class="num">크기 재현</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td class="mono">방 03</td><td>파랑 삼각</td><td style="color:var(--good)">히트</td><td class="num">(4,12) → 196</td><td class="num">0</td></tr>
+        <tr class="pick"><td class="mono">방 11</td><td>파랑 삼각</td><td style="color:var(--good)">히트</td><td class="num">(12,3) → 60</td><td class="num">1</td></tr>
+        <tr><td class="mono">방 25</td><td>파랑 원</td><td style="color:var(--crit)">아님</td><td class="num">—</td><td class="num">—</td></tr>
+        <tr class="pick"><td class="mono">방 19</td><td>파랑 삼각</td><td style="color:var(--good)">히트</td><td class="num">(7,7) → 119</td><td class="num">3</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figcaption>히트 판정은 시그모이드 &gt; 0.5 (로짓 &gt; 0). 위치는 256지선다, 크기는 4지선다. 방 25 는 읽었지만 “아님” 이라 답에서 빠진다 — <strong>읽고 버리면 그만</strong>이다.</figcaption>
+</section>
+
+<section id="i6" class="step">
+  <div class="step-head"><span class="step-num">06</span><h3>정지 검사 — 이번 라운드에 새 히트가 있었나</h3></div>
+  <div class="card">
+<pre>1라운드에 읽고 히트로 판정한 방: 03 · 11 · 19   → <span class="a">3개 &gt; 0 → 계속</span>
+
+규칙   <span class="a">이번 라운드에 실제로 읽은 방 중 히트 판정이 0개면 정지</span>
+단     <span class="a">질의마다 처음 한 번은 멈추지 않고 한 라운드 더 읽는다 — 인내의 보너스 라운드</span>
+
+이 질의의 보너스   1번 남음      <span class="c">(09절 3라운드에서 쓴다)</span></pre>
+  </div>
+  <div class="note">
+    <strong>정답이 몇 개인지 몰라도 되는 규칙이다.</strong> 후보를 점수 순으로 읽으니, 한 라운드 4칸을 통째로 읽고도 새 히트가 없으면 그 아래에도 없다고 본다 — <strong>다만 컷 바로 아래(5~8위)는 질의마다 한 번 더 확인한다.</strong> 순위에서 아슬아슬하게 밀린 정답이 거기 몰려 있다는 게 실측으로 나왔다 (<a href="#i12">12절</a>). 비용은 확인용 빈 라운드 한 번 + 보너스 라운드 한 번. 학습하는 판단이 아니라서 모델이 “멈추지 않기(= 전부 읽기)” 를 고를 수가 없다.
+  </div>
+</section>
+
+<section id="i7" class="step">
+  <div class="step-head"><span class="step-num">07</span><h3>q 보정 — 확인된 정답의 키 쪽으로 당긴다</h3></div>
+  <div class="premise"><span class="k">보정의 전제</span>정답 방들의 키는 코사인으로 서로 뭉쳐 있다. 그래서 확인된 정답의 키 쪽으로 q 를 당기면 아직 못 읽은 정답의 순위가 올라간다.</div>
+  <div class="card">
+<pre>히트로 판정한 방    03 · 11 · 19          <span class="c">← 25 는 "아님" 이라 넣지 않는다</span>
+히트 키 평균        m = (k₀₃ + k₁₁ + k₁₉) / 3
+보정               <span class="a">q₂ = normalize(q₁ + m)</span>
+
+<span class="c">라벨이 아니라 모델 자신의 히트 판정으로 거른다 — 추론 때는 라벨이 없다. 학습도 똑같이 한다.
+학습되는 가중치는 없다.</span></pre>
+  </div>
+  <figure class="dia narrow">
+    <svg viewBox="0 0 340 250" role="img" aria-label="개념도: q1 이 파랑 원 쪽으로 기울어 있다가, 히트로 확인된 03 11 19 의 키 평균을 더해 파랑 삼각 덩어리 가운데로 옮겨간다">
+      <defs>
+        <marker id="qa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker>
+        <marker id="qb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 10,5 0,10" fill="var(--accent)"/></marker>
+      </defs>
+      <path d="M 40 175 A 130 130 0 0 1 300 175" fill="none" stroke="currentColor" stroke-width="1" opacity=".25"/>
+      <circle cx="165.5" cy="45.1" r="5" fill="var(--o-blue)"/>
+      <circle cx="158.7" cy="45.5" r="5" fill="var(--o-blue)"/>
+      <circle cx="151.9" cy="46.3" r="5" fill="var(--o-blue)"/>
+      <circle cx="145.2" cy="47.4" r="4.5" fill="none" stroke="var(--o-blue)" stroke-width="1.6"/>
+      <circle cx="140.8" cy="48.3" r="4.5" fill="none" stroke="var(--o-blue)" stroke-width="1.6"/>
+      <circle cx="134.2" cy="50.0" r="4.5" fill="none" stroke="var(--o-blue)" stroke-width="1.6"/>
+      <circle cx="235.0" cy="62.4" r="4" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".7"/>
+      <circle cx="227.0" cy="58.2" r="4" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".7"/>
+      <circle cx="218.7" cy="54.5" r="4" fill="currentColor" opacity=".45"/>
+      <line x1="170" y1="175" x2="183.9" y2="76.0" stroke="currentColor" stroke-width="2" marker-end="url(#qa)"/>
+      <line x1="170" y1="175" x2="161.7" y2="80.4" stroke="var(--o-blue)" stroke-width="1.4" stroke-dasharray="4 3" opacity=".8"/>
+      <line x1="170" y1="175" x2="172.6" y2="75.0" stroke="var(--accent)" stroke-width="2.6" marker-end="url(#qb)"/>
+      <g font-family="IBM Plex Sans KR, sans-serif" font-size="10.5" fill="currentColor">
+        <text x="98" y="30">파랑삼각 · ● 03 11 19 (히트)</text>
+        <text x="60" y="68" opacity=".8">○ 05 21 28 (아직)</text>
+        <text x="232" y="44" opacity=".8">파랑원 25(읽음) 15 32</text>
+        <text x="190" y="120">q₁</text>
+        <text x="128" y="120" fill="var(--o-blue)">m</text>
+        <text x="176" y="100" fill="var(--accent)" font-weight="600">q₂</text>
+      </g>
+    </svg>
+    <figcaption><strong>개념도</strong>다 — 실제 키는 64차원이고, 각도를 막대 점수에 맞춘 그림이 아니다. q₁ 은 파랑 원 쪽으로 기울어 있었고, 히트로 확인된 03 · 11 · 19 의 평균 m 을 더하자 q₂ 가 파랑 삼각 덩어리 가운데로 옮겨간다. 속이 빈 05 · 21 · 28 이 q₂ 에 더 가까워진다.</figcaption>
+  </figure>
+  <div class="tw">
+    <table>
+      <thead><tr><th>2라운드에 무엇을 읽나</th><th>고른 4개</th><th class="num">새로 찾은 정답</th></tr></thead>
+      <tbody>
+        <tr><td>보정 없이 가림만 (q₁ 의 5~8위)</td><td class="mono">05 · 15 · 21 · 32</td><td class="num">2개 — 28 은 또 밀림</td></tr>
+        <tr class="pick"><td>히트 키로 보정한 q₂</td><td class="mono">28 · 05 · 21 · 15</td><td class="num">3개 — 28 까지</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <strong>가림만 하고 q 를 그대로 두면 k 를 키운 것과 똑같다.</strong> 1라운드 1~4위 + 2라운드 5~8위 = 그냥 “상위 8개” 다. 순위를 바꾸는 건 보정뿐이다. 그리고 <strong>비정답은 보정에 넣지 않는다</strong> — 25 를 넣으면 q 가 파랑 원 쪽으로 끌려 15 · 32 가 더 올라온다.
+  </div>
+</section>
+
+<section id="i8" class="step">
+  <div class="step-head"><span class="step-num">08</span><h3>2라운드 — 28 이 9위에서 1위로</h3></div>
+  <div class="card">
+    <div class="cap">cos(q₂, 키) · 1라운드에 읽은 03 · 11 · 25 · 19 는 −30 으로 가림 · 상위 9개 (지어낸 값)</div>
+    <div class="bars">
+      <div class="bar-row pick"><span class="bar-lab">방 28</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:47.5%"></i></div><span class="bar-val">.95</span><b class="bd hit">선택 · 9위→1위</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 05</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:47%"></i></div><span class="bar-val">.94</span><b class="bd hit">선택</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 21</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:46.5%"></i></div><span class="bar-val">.93</span><b class="bd hit">선택</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 15</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:35%"></i></div><span class="bar-val">.70</span><b class="bd hit">선택</b></div>
+      <div class="cutline"><span>상위 4개</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 32</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:33%"></i></div><span class="bar-val">.66</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 07</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:27.5%"></i></div><span class="bar-val">.55</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 13</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:26.5%"></i></div><span class="bar-val">.53</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 18</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:26%"></i></div><span class="bar-val">.52</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 29</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:25%"></i></div><span class="bar-val">.50</span></div>
+    </div>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>칸</th><th>실제 내용</th><th>히트 판정</th><th class="num">위치 재현</th><th class="num">크기 재현</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td class="mono">방 28</td><td>파랑 삼각</td><td style="color:var(--good)">히트</td><td class="num">(3,5) → 83</td><td class="num">0</td></tr>
+        <tr class="pick"><td class="mono">방 05</td><td>파랑 삼각</td><td style="color:var(--good)">히트</td><td class="num">(7,4) → 71</td><td class="num">2</td></tr>
+        <tr class="pick"><td class="mono">방 21</td><td>파랑 삼각</td><td style="color:var(--good)">히트</td><td class="num">(11,11) → 187</td><td class="num">2</td></tr>
+        <tr><td class="mono">방 15</td><td>파랑 원</td><td style="color:var(--crit)">아님</td><td class="num">—</td><td class="num">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+<pre>정지 검사   새 히트 28 · 05 · 21  → <span class="a">3개 → 계속</span>
+보정        q₃ = normalize(q₂ + (k₂₈ + k₀₅ + k₂₁) / 3)      <span class="c">← 15 는 넣지 않음</span></pre>
+  </div>
+</section>
+
+<section id="i9" class="step">
+  <div class="step-head"><span class="step-num">09</span><h3>3·4라운드 — 0히트, 인내의 보너스 라운드, 정지</h3></div>
+  <div class="card">
+    <div class="cap">3라운드 — q₃ 점수 · 가림 뒤 상위 8개 (지어낸 값)</div>
+<pre>가림     03 · 11 · 25 · 19 · 28 · 05 · 21 · 15   → −30
+1~4위    32 .64 · 07 .56 · 13 .54 · 18 .53     <span class="c">← 3라운드가 읽는다</span>
+5~8위    29 .51 · 12 .47 · 01 .45 · 23 .44     <span class="c">← 아직 안 읽음</span>
+
+판정     32 아님 · 07 아님 · 13 아님 · 18 아님
+정지 검사 새 히트 0개 → 원래 규칙이면 여기서 정지
+         <span class="a">인내의 보너스 라운드가 1번 남았다 → 멈추지 않고 한 라운드 더</span>
+보정     히트가 0개라 더할 키가 없다 → <span class="a">q₄ = q₃ 그대로</span></pre>
+  </div>
+  <div class="card">
+    <div class="cap">4라운드 — 인내의 보너스 라운드</div>
+<pre>가림     위 8개 + 32 · 07 · 13 · 18   → −30
+상위 4개  29 .51 · 12 .47 · 01 .45 · 23 .44     <span class="c">← q 가 그대로라 3라운드 점수의 5~8위와 같다</span>
+판정     아님 · 아님 · 아님 · 아님
+정지 검사 새 히트 0개 · <span class="a">보너스는 이미 썼다 → 정지</span></pre>
+  </div>
+  <div class="card">
+    <div class="cap">이 질의가 읽은 16방 — 라운드 표시</div>
+    <div class="kvgrid">
+      <div class="g read"><b></b><b></b><b></b><b></b><span>01</span><em>4R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>02</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>03</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>04</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>05</span><em>2R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>06</span></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>07</span><em>3R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>08</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>09</span></div><div class="g"><b></b><b></b><b></b><b></b><span>10</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>11</span><em>1R</em></div><div class="g read"><b></b><b></b><b></b><b></b><span>12</span><em>4R</em></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>13</span><em>3R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>14</span></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>15</span><em>2R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>16</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>17</span></div><div class="g read"><b></b><b></b><b></b><b></b><span>18</span><em>3R</em></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>19</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>20</span></div>
+      <div class="g hit"><b></b><b></b><b></b><b></b><span>21</span><em>2R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>22</span></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>23</span><em>4R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>24</span></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>25</span><em>1R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>26</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>27</span></div><div class="g hit"><b></b><b></b><b></b><b></b><span>28</span><em>2R</em></div>
+      <div class="g read"><b></b><b></b><b></b><b></b><span>29</span><em>4R</em></div><div class="g"><b></b><b></b><b></b><b></b><span>30</span></div>
+      <div class="g"><b></b><b></b><b></b><b></b><span>31</span></div><div class="g read"><b></b><b></b><b></b><b></b><span>32</span><em>3R</em></div>
+    </div>
+    <figcaption>16방 = 4라운드 × 4칸 = 캐시의 50 %. 3라운드는 “더 없음” 을 확인한 칸, 4라운드는 인내의 보너스 라운드다 — <strong>이 판에선 둘 다 빈손</strong>이고, 이게 보너스의 대가다. 실측(모의)에서도 보너스 라운드의 97.7 % 가 빈손이었다. 보너스가 제값을 하는 판은 <a href="#i12">12절</a>. 안 읽은 16방은 사라진 게 아니라 원본 그대로 남아 있다 — 다음 질의가 다른 조합을 물으면 그때 읽힌다.</figcaption>
+  </div>
+</section>
+
+<section id="i10" class="step">
+  <div class="step-head"><span class="step-num">10</span><h3>출력과 채점 — 전부완수 · ★완수</h3></div>
+  <div class="prose">
+    <p><strong>출력 = 읽고 히트로 판정한 방</strong>과 그 방들의 위치·크기: <span class="mono">{03, 05, 11, 19, 21, 28}</span>. 읽기 자체는 채점하지 않는다 — 방 25 · 15 · 32 · 07 · 13 · 18 · 29 · 12 · 01 · 23 을 읽고 버린 건 벌점이 없다. 안 읽은 방은 위치·크기를 복원할 수 없으니 답이 될 수 없다.</p>
+  </div>
+  <div class="duo">
+    <div class="card" style="margin-top:0">
+      <div class="cap">전부완수 · task_exact</div>
+      <p style="color:var(--ink);font-weight:600">물어본 것에 정확히 답했나 — 질의마다 1 아니면 0</p>
+      <ul class="tight" style="margin-top:10px">
+        <li><strong>출력한 방 집합 = 정답 방 집합.</strong> 더도 덜도 없이.</li>
+        <li><strong>그 정답 방 전부의 위치·크기를 맞혔다.</strong> 하나라도 틀리면 0.</li>
+      </ul>
+    </div>
+    <div class="card" style="margin-top:0">
+      <div class="cap">★완수 · task_recall</div>
+      <p style="color:var(--ink);font-weight:600">정답 대비 몇 개를 풀었나 — 방 단위 비율</p>
+<pre style="margin-top:10px">★완수 = 푼 정답 방 수 / 정답 방 수</pre>
+      <figcaption>풀었다 = 읽고 · 히트로 판정하고 · 위치·크기까지 맞혔다. 헛것은 보지 않는다.</figcaption>
+    </div>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>출력 (가정)</th><th>무슨 일이 있었나</th><th class="num">전부완수</th><th class="num">★완수</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td class="mono">{03,05,11,19,21,28}</td><td>정답 그대로, 위치·크기 전부 맞음</td><td class="num" style="color:var(--good)">1</td><td class="num">6/6 = 1.00</td></tr>
+        <tr><td class="mono">{03,05,11,19,21}</td><td>28 을 놓침 (2라운드 보정이 없었다면)</td><td class="num" style="color:var(--crit)">0</td><td class="num">5/6 = 0.83</td></tr>
+        <tr><td class="mono">{03,05,11,19,21,28,32}</td><td>읽은 파랑 원 32 를 히트라고 판정 — 헛것</td><td class="num" style="color:var(--crit)">0</td><td class="num">6/6 = 1.00</td></tr>
+        <tr><td class="mono">{03,05,11,19,21,28}</td><td>방 19 위치를 (7,8) 로 틀림</td><td class="num" style="color:var(--crit)">0</td><td class="num">5/6 = 0.83</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note"><strong>찾기(recall)와 헷갈리지 말 것.</strong> 찾기는 정답 방이 <em>읽혔는지</em>만 보는 방 단위 평균이다. 찾기가 0.99 여도, 놓친 방이 여러 질의에 흩어져 있으면 질의 단위인 전부완수는 한참 낮을 수 있다 — 정답 6개 중 하나만 놓쳐도 그 질의는 0 이다.</div>
+</section>
+
+<section id="i11" class="step">
+  <div class="step-head"><span class="step-num">11</span><h3>정답이 3개인 질의 — 적게 읽고 멈춘다</h3></div>
+  <div class="prose">
+    <p>같은 캐시에 사용자가 이번엔 <strong>초록 원</strong>을 그렸다. 정답은 08 · 20 · 26 — 모델은 역시 개수를 모른다.</p>
+  </div>
+  <div class="card">
+<pre>1라운드  08 .93 · 26 .90 · 20 .88 · 01(초록삼각) .61     <span class="c">(지어낸 값)</span>
+         판정  히트 · 히트 · 히트 · 아님     → 새 히트 3개 → 계속
+         보정  q₂ = normalize(q₁ + (k₀₈ + k₂₆ + k₂₀) / 3)
+2라운드  12(초록삼각) .58 · 23(초록삼각) .55 · 14(빨강원) .40 · 04(빨강원) .38
+         <span class="c">5~8위  22(빨강원) .36 · 10(빨강원) .35 · 30(빨강원) .33 · 29(빨강삼각) .31</span>
+         판정  아님 · 아님 · 아님 · 아님     → 새 히트 0개 → <span class="a">인내의 보너스 라운드 사용 · q₃ = q₂</span>
+3라운드  22 · 10 · 30 · 29                <span class="c">← 2라운드 점수의 5~8위</span>
+         판정  아님 · 아님 · 아님 · 아님     → <span class="a">새 히트 0개 · 보너스 이미 씀 → 정지</span>
+
+출력 {08, 20, 26} + 위치·크기     읽기 12칸 = 37.5 %</pre>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>질의</th><th class="num">정답 수</th><th class="num">라운드</th><th class="num">읽은 방</th><th class="num">읽기 비율</th></tr></thead>
+      <tbody>
+        <tr><td>파랑 삼각</td><td class="num">6</td><td class="num">4</td><td class="num">16</td><td class="num">50.0 %</td></tr>
+        <tr><td>초록 원</td><td class="num">3</td><td class="num">3</td><td class="num">12</td><td class="num">37.5 %</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figcaption><strong>같은 모델, 같은 캐시인데 읽는 양이 정답 수에 따라 달라진다.</strong> 늘 “정답을 담는 라운드 + 확인용 빈 라운드 1회 + 인내의 보너스 라운드 1회” 다. 방이 256개로 늘어도 정답이 3개면 12칸이다.</figcaption>
+</section>
+
+<section id="i12" class="step">
+  <div class="step-head"><span class="step-num">12</span><h3>인내의 보너스 라운드 — 한 라운드가 통째로 비정답인데 정답이 남았다</h3></div>
+  <div class="prose">
+    <p>같은 캐시, 같은 파랑 삼각형 질의인데 <strong>q₁ 이 04절보다 더 빗나간 경우</strong>를 가정한다. 색이 같은 파랑 원 25 · 15 · 32 와 모양이 같은 빨강 삼각 07 이 1라운드 4칸을 다 차지했고, 정답 넷이 바로 아래 5~8위에 있다.</p>
+    <p>이건 지어낸 예시지만 <strong>모양은 실측과 같다</strong> — 학습이 끝난 모델이 순위 실패로 멈춘 질의에서, 멈춘 라운드 4칸은 거의 전부 “색만 같은 방” 이었고 놓친 정답은 바로 아래 5~8위에 있었다 (<a href="#w6">설계 결정 06</a>).</p>
+  </div>
+  <div class="card">
+    <div class="cap">가정한 1라운드 — cos(q₁, 키) · 상위 12개 (지어낸 값)</div>
+    <div class="bars">
+      <div class="bar-row"><span class="bar-lab">방 25</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:44%"></i></div><span class="bar-val">.88</span><b class="bd no">1R · 아님</b></div>
+      <div class="bar-row"><span class="bar-lab">방 15</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:44%"></i></div><span class="bar-val">.88</span><b class="bd no">1R · 아님</b></div>
+      <div class="bar-row"><span class="bar-lab">방 32</span><span class="bar-sub">파랑원</span><div class="track"><i class="fill p" style="width:43.5%"></i></div><span class="bar-val">.87</span><b class="bd no">1R · 아님</b></div>
+      <div class="bar-row"><span class="bar-lab">방 07</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:43.5%"></i></div><span class="bar-val">.87</span><b class="bd no">1R · 아님</b></div>
+      <div class="cutline"><span>상위 4개 — 1라운드가 읽는다</span></div>
+      <div class="bar-row pick"><span class="bar-lab">방 03</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:43.5%"></i></div><span class="bar-val">.87</span><b class="bd hit">보너스 · 히트</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 11</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:43%"></i></div><span class="bar-val">.86</span><b class="bd hit">보너스 · 히트</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 19</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:43%"></i></div><span class="bar-val">.86</span><b class="bd hit">보너스 · 히트</b></div>
+      <div class="bar-row pick"><span class="bar-lab">방 05</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:42.5%"></i></div><span class="bar-val">.85</span><b class="bd hit">보너스 · 히트</b></div>
+      <div class="cutline"><span>5~8위 — 인내의 보너스 라운드가 읽는 칸</span></div>
+      <div class="bar-row miss"><span class="bar-lab">방 21</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:40.5%"></i></div><span class="bar-val">.81</span><b class="bd wait">정답 · 9위</b></div>
+      <div class="bar-row miss"><span class="bar-lab">방 28</span><span class="bar-sub">파랑삼각</span><div class="track"><i class="fill p" style="width:39.5%"></i></div><span class="bar-val">.79</span><b class="bd wait">정답 · 10위</b></div>
+      <div class="bar-row skip"><span class="bar-lab">방 13</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:26%"></i></div><span class="bar-val">.52</span></div>
+      <div class="bar-row skip"><span class="bar-lab">방 18</span><span class="bar-sub">빨강삼각</span><div class="track"><i class="fill p" style="width:25.5%"></i></div><span class="bar-val">.51</span></div>
+    </div>
+    <figcaption>4위 07 과 5위 03 이 소수 둘째 자리까지 같다 — 컷이 사실상 동점이다. 실측에서도 이런 동점이 흔했지만, 점수를 더 정밀하게(fp32) 재도 정답 쪽으로 기울지 않았다. 간격 자체가 거의 0이라서다 (<a href="#w6">설계 결정 06</a>).</figcaption>
+  </div>
+  <div class="card">
+    <div class="cap">원래 규칙 — 1라운드에서 멈춘다</div>
+<pre>1라운드  25 · 15 · 32 · 07   → 판정 아님 ×4 → 새 히트 0개
+정지     <span class="x">여기서 멈춘다</span>
+출력     { }                 → <span class="x">전부완수 0 · ★완수 0 / 6</span>
+읽기     4칸</pre>
+  </div>
+  <div class="card">
+    <div class="cap">인내의 보너스 라운드 — 한 번 더 보고 끝까지 간다</div>
+<pre>1라운드  25 · 15 · 32 · 07   → 판정 아님 ×4 → 새 히트 0개
+         보너스 1번 남음 → <span class="a">사용</span>.  히트가 없어 보정도 없다 → <span class="a">q₂ = q₁</span>
+2라운드  가림 25 · 15 · 32 · 07 → 상위 4 = <span class="a">03 · 11 · 19 · 05</span>    <span class="c">← 1라운드 점수의 5~8위</span>
+ (보너스) 판정 히트 ×4 → 계속
+         보정 q₃ = normalize(q₂ + (k₀₃ + k₁₁ + k₁₉ + k₀₅) / 4)
+3라운드  21 · 28 · 13 · 18   → 히트 21 · 28 → 계속 → 보정 q₄ = normalize(q₃ + (k₂₁ + k₂₈) / 2)
+4라운드  29 · 12 · 01 · 23   → 히트 0개 · <span class="a">보너스 이미 씀 → 정지</span>
+출력     {03, 05, 11, 19, 21, 28}   → <span class="g">전부완수 1 · ★완수 6 / 6</span>
+읽기     16칸</pre>
+  </div>
+  <div class="note">
+    <strong>왜 정확히 5~8위를 읽나.</strong> 0히트 라운드에는 더할 히트 키가 없어 <a href="#i7">보정</a>이 일어나지 않는다. q 가 그대로이고 방금 읽은 4칸만 가려지니, 보너스 라운드는 그 라운드 점수의 다음 4개 = 5~8위다. 07절 표의 “보정 없이 가림만 = q₁ 의 5~8위” 와 같은 계산이다. 보너스에서 히트가 나오면 거기부터는 평소처럼 보정하고 계속한다.
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>실측 · 추론 모의 (재학습 없음 · 같은 질의 16,384개)</th><th class="num">전부완수</th><th class="num">순위 실패로 정지</th><th class="num">헛것</th><th class="num">라운드</th><th class="num">읽기</th></tr></thead>
+      <tbody>
+        <tr><td>λ = 0.05 · 6,000스텝 — 원래 규칙</td><td class="num">0.9770</td><td class="num">366</td><td class="num">11</td><td class="num">2.62</td><td class="num">32.8 %</td></tr>
+        <tr class="pick"><td>〃 + 인내의 보너스 라운드</td><td class="num">0.9990</td><td class="num">0</td><td class="num">17</td><td class="num">3.65</td><td class="num">45.7 %</td></tr>
+        <tr><td>λ = 0 · 6,000스텝 — 원래 규칙</td><td class="num">0.9502</td><td class="num">797</td><td class="num">19</td><td class="num">2.99</td><td class="num">37.4 %</td></tr>
+        <tr><td>〃 + 인내의 보너스 라운드</td><td class="num">0.9986</td><td class="num">0</td><td class="num">23</td><td class="num">4.05</td><td class="num">50.6 %</td></tr>
+        <tr><td>λ = 0 · 3,000스텝 — 원래 규칙</td><td class="num">0.9854</td><td class="num">67</td><td class="num">167</td><td class="num">2.55</td><td class="num">31.9 %</td></tr>
+        <tr><td>〃 + 인내의 보너스 라운드</td><td class="num">0.9865</td><td class="num">3</td><td class="num">209</td><td class="num">3.56</td><td class="num">44.5 %</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figcaption>모두 보너스 없이 학습한 모델에 추론 때만 규칙을 켜서 잰 값이다. λ = 0.05 · 6,000스텝 두 행은 실제 모델 코드로 잰 값이고, 나머지 보너스 행은 같은 루프를 재현한 분석 스크립트 값이다. “순위 실패로 정지” · “헛것” 은 그 실패가 난 질의 수.</figcaption>
+  <ul class="tight" style="margin-top:16px">
+    <li><strong>한 번이면 충분했다 (실측).</strong> λ = 0.05 · 6,000스텝에서 순위 실패로 멈춘 366질의, 놓친 정답 방 917개가 전부 구제됐다 — 모두 멈춘 라운드의 5~8위에 있었다. 0히트 라운드마다 매번 주거나 두 번 줘도 구제 수는 같고 칸만 더 쓴다.</li>
+    <li><strong>대가는 모든 질의에 4칸.</strong> 09절처럼 정답을 이미 다 찾은 질의도 보너스 라운드를 읽는다. 실측에서 보너스 라운드의 97.7 % 가 빈손이었다. 방 32개에선 12.5 %p, 256개면 1.6 %p 다.</li>
+    <li><strong>못 막는 것.</strong> 9위 밖에 남은 정답 (3,000스텝에서 3질의), 그리고 헛것 — 헛것이 병목인 모델은 라운드가 늘수록 헛것 기회도 늘었다 (167 → 209).</li>
+    <li><strong>학습에는 넣지 않는다 — 학습이 끝난 모델에 추론 때 켠다.</strong> 위 모델들은 모두 보너스 없이 학습됐다. λ = 0.05 · 6,000스텝에 보너스를 켠 모델(전부완수 0.9990)이 지금의 <strong>프론티어</strong>다 (<span class="mono">frontier/N32/n32_lam005_step06000.pt</span>). 왜 학습에는 없는지 → <a href="#t5">학습 05</a> · <a href="#w6">설계 결정 06</a></li>
+  </ul>
+</section>
+
+<section id="i13" class="step">
+  <div class="step-head"><span class="step-num">13</span><h3>비용 — 라운드마다 정산</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>항목</th><th class="num">값 개수</th><th>계산</th></tr></thead>
+      <tbody>
+        <tr><td>라우터 — 키 32개 훑기 (라운드당)</td><td class="num">2,048</td><td class="mono">32 × 64</td></tr>
+        <tr><td>보정 — 히트 키 최대 4개 평균 (라운드당)</td><td class="num">≤ 256</td><td class="mono">4 × 64</td></tr>
+        <tr class="pick"><td>읽기 — 4방 × 4장 (라운드당)</td><td class="num">98,304</td><td class="mono">16 × 256 × 2 × 12층</td></tr>
+        <tr><td>이 질의 전체 (4라운드)</td><td class="num">393,216</td><td class="mono">98,304 × 4</td></tr>
+        <tr><td>그중 인내의 보너스 라운드 (질의마다 1회)</td><td class="num">98,304</td><td class="mono">라운드 하나</td></tr>
+        <tr><td>full attention (128장 전부)</td><td class="num">786,432</td><td class="mono">128 × 256 × 2 × 12층</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="duo">
+    <div class="stat"><div class="l">읽기 / full attention</div><div class="v">50.0 %</div><div class="s">정답 3개 질의면 37.5 % · 그중 보너스 몫 12.5 %p</div></div>
+    <div class="stat"><div class="l">라우터 / 읽기</div><div class="v">2.1 %</div><div class="s">(2,048 × 4) / 393,216</div></div>
+    <div class="stat"><div class="l">라우터 손익분기</div><div class="v">1,536 방</div><div class="s">라운드당 N·64 = 98,304 가 되는 N</div></div>
+  </div>
+  <figcaption>라우터 비용은 방 수에 비례해 늘고 읽기는 라운드당 4칸으로 고정이다. 방 1,536개를 넘으면 한 라운드의 키 훑기가 읽기보다 비싸져 키 계층화가 필요해진다 — 현재 범위 밖. 학습 때는 배치 전원이 멈추면 남은 라운드 계산을 건너뛴다 (결과는 같다).</figcaption>
+</section>
+
+<section id="i14" class="step">
+  <div class="step-head"><span class="step-num">14</span><h3>대조군 — 같은 질의를 다른 방식으로</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>방식</th><th>읽는 것</th><th>파랑 삼각 질의 결과</th></tr></thead>
+      <tbody>
+        <tr><td>최근 방만 (윈도우)</td><td class="mono">방 21 ~ 32 (12방)</td><td style="color:var(--crit)">21 · 28 만 — 2/6. 정답이 시퀀스 전체에 흩어져 있다</td></tr>
+        <tr><td>압축 / evict</td><td>32방 전부의 축약본</td><td style="color:var(--crit)">어느 조합이 질의될지 압축 시점에 모른다 — 위치·크기가 지워질 수 있다</td></tr>
+        <tr><td>고정 top-8 한 번</td><td class="mono">03 11 25 19 05 15 21 32</td><td style="color:var(--crit)">5/6 — 28(9위) 놓침. 정답이 8개를 넘으면 원리상 못 담는다</td></tr>
+        <tr class="pick"><td>캐시 라우팅 (라운드 + 보정 + 정지 + 보너스)</td><td class="mono">16방</td><td style="color:var(--good)">6/6 — 필요한 만큼 읽고 멈춤</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</div><!-- /part-infer -->
+
+<!-- ═══ 학습 ═══ -->
+<div class="part" id="part-train">
+<div class="band">
+  <div class="k">Part 2</div>
+  <h2>학습 — 나눠 읽을 수 있는 캐시를 처음부터 만든다</h2>
+  <p>라우터를 나중에 붙이지 않는다. 본체와 라우터를 함께 학습시켜 <strong>캐시가 처음부터 “방 단위로 골라 읽어도 되는 형태”</strong>로 만들어지게 한다. 이 파트도 파랑 삼각 질의 한 판으로 따라간다.</p>
+</div>
+
+<section id="t1" class="step">
+  <div class="step-head"><span class="step-num">01</span><h3>학습되는 것</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>파라미터</th><th class="num">모양</th><th>하는 일</th></tr></thead>
+      <tbody>
+        <tr><td>임베딩</td><td class="num">1,280 → 256</td><td>격자 한 장을 벡터 하나로</td></tr>
+        <tr><td>12층 블록</td><td class="num">d 256 · 8헤드 · FFN 1,024</td><td class="wrap">관찰 인코딩 · <strong>질의 인코딩(같은 층)</strong> · 칸의 방 읽기(칸은 q 투영만 따로)</td></tr>
+        <tr><td class="mono">u — 프로브</td><td class="num">256</td><td>방 프레임 4장을 접는 가중치. 모델 전체에 1개</td></tr>
+        <tr><td class="mono">W — 키 투영</td><td class="num">256 → 64</td><td>라우팅 전용 축</td></tr>
+        <tr><td class="mono">W_q — 질의 투영</td><td class="num">256 → 64</td><td>질의를 같은 축으로</td></tr>
+        <tr><td>헤드 3개</td><td class="num">→ 1 · 256 · 4</td><td>히트 판정 · 위치 · 크기</td></tr>
+        <tr><td class="mono">route_a, route_b</td><td class="num">스칼라 2개</td><td class="wrap">안 읽은 방의 히트 예측 = route_a · 점수 + route_b (초기 5, −2.5)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note"><strong>없는 것:</strong> 보정용 가중치(<span class="mono">Wr</span>) — 보정은 히트 키 평균이라 파라미터가 없다. 정지를 판단하는 헤드 — 정지는 규칙이다. 둘 다 한때 있었다가 폐기했다 → <a href="#w3">설계 결정 03</a> · <a href="#w4">04</a></div>
+</section>
+
+<section id="t2" class="step">
+  <div class="step-head"><span class="step-num">02</span><h3>학습 데이터 만들기 — 매 스텝 새로, GPU 에서</h3></div>
+  <div class="card">
+<pre>한 스텝 = 에피소드 64개. 같은 에피소드를 두 번 보지 않는다.
+
+에피소드 하나
+1. 조합 8개에 방 수 배정 (각 2~7, 합 32)
+     파랑삼각 6 · 파랑원 3 · 빨강삼각 4 · 빨강원 5 · 초록삼각 3 · 초록원 3 · 노랑삼각 3 · 노랑원 5
+2. 32방을 무작위 순서로 섞는다           → 파랑삼각이 03·05·11·19·21·28 번에 놓임
+3. 방마다 크기 등급(0~3)과 위치          → 방 03 은 (4,12) 크기 0
+4. 방마다 프레임 4장 — 도형은 같게, 빈칸의 0.8 % 에 무작위 색 잡음 (장마다 다르게)
+5. 질의 8개 = 조합마다 하나. 위치·크기는 새로 무작위  → 파랑삼각 질의는 (11,9) 크기 0
+6. 라벨   히트 8 × 32 · 위치 칸 번호 · 크기 등급      <span class="c">← 손실에만 쓴다</span></pre>
+  </div>
+</section>
+
+<section id="t3" class="step">
+  <div class="step-head"><span class="step-num">03</span><h3>그룹 드롭아웃 — 방을 통째로 지운다</h3></div>
+  <div class="card">
+<pre>파랑삼각 질의 (질의마다 따로 뽑는다)
+  정답 6방     03·05·11·19·21·28          → <span class="a">절대 안 지움</span>
+  나머지 26방  각각 50 % 확률로 삭제
+               예) 25·15·07·13·02·04·09·10·16·22·26·30·31   (13방)
+  삭제된 방    <span class="a">모든 라운드에서 점수 −30</span> → 절대 안 뽑힘
+
+  살아남은 방이 1라운드 칸 수(4)보다 적으면 그 질의는 드롭을 취소</pre>
+  </div>
+  <div class="kvgrid" style="margin-top:12px">
+    <div class="g"><b></b><b></b><b></b><b></b><span>01</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>02</span></div>
+    <div class="g hit"><b></b><b></b><b></b><b></b><span>03</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>04</span></div>
+    <div class="g hit"><b></b><b></b><b></b><b></b><span>05</span></div><div class="g"><b></b><b></b><b></b><b></b><span>06</span></div>
+    <div class="g drop"><b></b><b></b><b></b><b></b><span>07</span></div><div class="g"><b></b><b></b><b></b><b></b><span>08</span></div>
+    <div class="g drop"><b></b><b></b><b></b><b></b><span>09</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>10</span></div>
+    <div class="g hit"><b></b><b></b><b></b><b></b><span>11</span></div><div class="g"><b></b><b></b><b></b><b></b><span>12</span></div>
+    <div class="g drop"><b></b><b></b><b></b><b></b><span>13</span></div><div class="g"><b></b><b></b><b></b><b></b><span>14</span></div>
+    <div class="g drop"><b></b><b></b><b></b><b></b><span>15</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>16</span></div>
+    <div class="g"><b></b><b></b><b></b><b></b><span>17</span></div><div class="g"><b></b><b></b><b></b><b></b><span>18</span></div>
+    <div class="g hit"><b></b><b></b><b></b><b></b><span>19</span></div><div class="g"><b></b><b></b><b></b><b></b><span>20</span></div>
+    <div class="g hit"><b></b><b></b><b></b><b></b><span>21</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>22</span></div>
+    <div class="g"><b></b><b></b><b></b><b></b><span>23</span></div><div class="g"><b></b><b></b><b></b><b></b><span>24</span></div>
+    <div class="g drop"><b></b><b></b><b></b><b></b><span>25</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>26</span></div>
+    <div class="g"><b></b><b></b><b></b><b></b><span>27</span></div><div class="g hit"><b></b><b></b><b></b><b></b><span>28</span></div>
+    <div class="g"><b></b><b></b><b></b><b></b><span>29</span></div><div class="g drop"><b></b><b></b><b></b><b></b><span>30</span></div>
+    <div class="g drop"><b></b><b></b><b></b><b></b><span>31</span></div><div class="g"><b></b><b></b><b></b><b></b><span>32</span></div>
+  </div>
+  <div class="prose" style="margin-top:14px">
+    <p><strong>이게 하는 일.</strong> 방 03 의 캐시가 몰래 방 25 에 기대어 만들어졌다면, 25 가 사라진 지금 방 03 의 위치·크기 재현이 틀리고 손실이 난다 → <span class="hi">“다른 방에 기대지 말고 스스로 완결되라”</span> 는 압력. 이게 방 <em>사이</em>의 분리를 만든다. 방 <em>안</em>의 4장이 얽히는 건 정상이다.</p>
+    <p><strong>왜 질의마다 따로 뽑나.</strong> 질의 8개가 조합 8개를 모두 덮으니 모든 방은 어느 질의의 정답이다. 에피소드 단위로 “정답은 안 지운다” 를 걸면 지울 방이 하나도 없다.</p>
+  </div>
+</section>
+
+<section id="t4" class="step">
+  <div class="step-head"><span class="step-num">04</span><h3>soft 구간 (0 ~ 1,799스텝) — 끝까지 읽고, 점수 비중을 곱한다</h3></div>
+  <div class="card">
+<pre>정지 규칙을 쓰지 않는다 → <span class="a">8라운드 전부 읽는다</span>   <span class="c">(히트 판정이 아직 서툴러서)</span>
+라운드마다 상위 4개를 고르는 건 같다. 읽은 결과에 가중치를 곱한다:
+
+gate = softmax(점수 / 0.1)           살아있는 방 전체
+1라운드에 고른 03·11·19·05 의 gate  [0.30, 0.25, 0.25, 0.20]     <span class="c">(지어낸 값)</span>
+coef = 4 × gate / 합                 [1.2,  1.0,  1.0,  0.8 ]
+칸 출력 ← 칸 출력 × coef</pre>
+    <figcaption>점수가 높은 칸일수록 결과에 크게 반영되니, 손실이 칸 출력 → coef → gate → <strong>점수</strong>로 흘러간다. 드롭된 방·후보가 바닥난 칸은 읽지 않은 것으로 친다. (라운드당 1칸이면 coef 가 늘 1 이라 이 경로가 끊긴다 — 지금 설정은 4칸.)</figcaption>
+  </div>
+</section>
+
+<section id="t5" class="step">
+  <div class="step-head"><span class="step-num">05</span><h3>hard 구간 (1,800 ~ 6,000스텝) — 추론과 똑같이 멈춘다</h3></div>
+  <div class="card">
+<pre>정지 규칙     새 히트 0개 라운드에서 <span class="a">바로</span> 멈춘다 — <span class="a">인내의 보너스 라운드는 학습에 없다</span>
+              (보너스는 학습이 끝난 모델에 추론 때 켠다)
+가중치        coef = 1 + gate − sg(gate)       <span class="c">sg = 기울기 끊기</span>
+              순전파는 1, 역전파는 gate 의 기울기  (straight-through)
+조기 종료     배치 64 × 질의 8 전원이 멈추면 남은 라운드 계산을 건너뜀</pre>
+  </div>
+  <div class="note">
+    <strong>일찍 멈춰서 놓친 정답은 손실로 돌아온다.</strong> hard 에서 파랑삼각 질의가 2라운드 뒤 멈춰 21 을 못 읽었다면, 21 은 다음 절의 히트 판정 BCE 에서 “히트였어야 한다” 로 채점된다 — 라우터가 21 을 앞 라운드로 끌어올리게 된다.<br><br>
+    <strong>조기 종료는 결과를 바꾸지 않는다 (실측).</strong> 계산한 라운드가 8 → 1 · 6 · 7 로 줄어도 손실·지표·선택·판정이 같았고, 위치·크기 로짓 차이는 최대 1.9 × 10⁻⁶ (부동소수점 끝자리).
+  </div>
+  <div class="note next">
+    <strong>왜 학습에는 인내의 보너스 라운드가 없나.</strong> 모델은 forward 에서 정지 규칙을 보지 못하지만, 규칙은 <em>어떤 손실이 걸리는지</em>를 바꾼다. <a href="#i12">추론 12절</a>의 판을 학습 중에 만났다고 하자 — 1라운드 4칸이 25 · 15 · 32 · 07 이고, 정답 03 · 11 · 19 · 05 가 바로 아래 5~8위다.
+    <ul class="tight" style="margin-top:8px">
+      <li><strong>보너스 없이 학습 (채택)</strong> — 1라운드에서 멈춘다. 정답 6개가 전부 “안 읽은 방” 이라 <a href="#t6">손실 ①</a> 에서 pos_weight 7 이 붙은 큰 벌을 받고, 그 기울기가 03 · 11 · 19 · 05 의 점수를 1라운드 컷 위로 밀어 올린다.</li>
+      <li><strong>보너스를 켜고 학습했다면</strong> — 2라운드(보너스)에서 03 · 11 · 19 · 05 가 읽혀 칸 판정으로 “히트” 채점을 받는다. 손실 ① 의 큰 벌이 사라지고, 순위를 미는 건 <a href="#t8">손실 ④</a> 의 λ × 1 × BCE 뿐이다 (λ = 0.05). 모델이 “5~8위면 보너스가 주워 준다” 에 기대어 순위를 느슨하게 둘 수 있다.</li>
+    </ul>
+    <span style="display:block;margin-top:8px">목표가 “가능한 한 덜 읽기” 이므로 학습은 엄격하게(보너스 없이) 하고, 보너스는 학습이 끝난 모델에 붙이는 <strong>추론 규칙</strong>으로 쓴다. 정답 라벨을 쓰지 않으니 배포할 수 있는 정상 동작이다. 추론에만 켜도 원래 멈춘 라운드까지의 출력은 켜지 않았을 때와 칸 단위로 같다 (실측) — 보너스는 더 읽기만 한다. 순위 압력을 더 조이는 건 λ 를 올려서 한다 (다음 학습 λ = 0.1).</span>
+  </div>
+</section>
+
+<section id="t6" class="step">
+  <div class="step-head"><span class="step-num">06</span><h3>손실 ① 히트 판정 BCE — 방 32개 전부</h3></div>
+  <div class="card">
+<pre>질의 × 방 = 8 × 32 칸 전부를 채점한다.
+
+<span class="a">읽은 방</span>     칸의 판정 로짓           방 03 → "히트" 여야 · 방 25 → "아님" 이어야
+<span class="a">안 읽은 방</span>  route_a · 점수 + route_b    (그 질의가 마지막으로 실제로 쓴 라운드의 점수)
+            예) 안 읽은 빨강원 04, 점수 .21 → 5 × .21 − 2.5 = −1.45 → 정답 0
+                BCE = log(1 + e^−1.45) = <span class="g">0.21</span>                         <span class="c">작다</span>
+            예) 일찍 멈춰 못 읽은 정답 21, 점수 .77 → 5 × .77 − 2.5 = 1.35 → 정답 1
+                BCE = log(1 + e^−1.35) = 0.23 × pos_weight 7 = <span class="x">1.61</span>     <span class="c">크다 → 21 의 점수를 올린다</span>
+
+pos_weight = 비정답 수 / 정답 수 = (256 − 32) / 32 = <span class="a">7</span>
+             <span class="c">에피소드마다 32방이 각자 한 질의의 정답이라 정확히 7</span></pre>
+    <figcaption>(route_a 5, route_b −2.5 는 초기값이고 학습 중에 바뀐다. 점수는 지어낸 값.) 학습에는 인내의 보너스 라운드가 없으므로, 멈춘 라운드 바로 아래(5~8위)에 남은 정답도 이 큰 벌을 받는다 — 학습 때 보너스를 끄는 이유다 (<a href="#t5">05</a>).</figcaption>
+  </div>
+  <div class="note warn">
+    <strong>왜 32개 전부인가 (실측, D1).</strong> 처음엔 읽은 칸만 채점했다. 그러면 “정답인데 안 고른 방” 이 손실에 아예 안 보여서, 라우터가 고른 것에 확신만 키웠다 — <strong>손실은 0.0017 까지 떨어졌는데 찾기는 0.696</strong>. 안 읽은 방도 점수로 채점하자 놓친 정답이 벌을 받기 시작했다.
+  </div>
+</section>
+
+<section id="t7" class="step">
+  <div class="step-head"><span class="step-num">07</span><h3>손실 ②③ 위치·크기 재현 CE — 캐시를 읽었다는 증거</h3></div>
+  <div class="card">
+<pre>채점 대상   <span class="a">읽은 칸 중 진짜 정답인 칸만</span>   <span class="c">(판정이 틀려도 정답 칸이면 채점한다)</span>
+
+방 03   위치  256지선다  정답 칸 12·16 + 4 = <span class="a">196</span>     CE = −log p(196)
+        크기  4지선다    정답 등급 <span class="a">0</span>              CE = −log p(0)
+방 25   비정답 → 재현 채점 안 함</pre>
+    <figcaption>질의 그림의 위치·크기는 무작위라 정보가 없다. 방 03 의 <span class="mono">(4,12)</span> 크기 0 은 <strong>방 03 의 캐시에만</strong> 있다. 이걸 맞히려면 그 방의 KV 를 실제로 읽어야 한다 — 그래서 이 두 손실이 핵심 신호다.</figcaption>
+  </div>
+</section>
+
+<section id="t8" class="step">
+  <div class="step-head"><span class="step-num">08</span><h3>손실 ④ 늦게 찾은 정답 벌점 — 정답을 1라운드에 잡아라</h3></div>
+  <div class="card">
+    <div class="cap">hard 구간의 한 스텝 — 25 · 15 가 드롭된 파랑삼각 질의 (지어낸 값)</div>
+<pre>1라운드  03 · 11 · 19 · 05   → 히트 4개 → 계속
+2라운드  21 · 28 · 32 · 18   → 히트 2개 → 계속
+3라운드  29 · 12 · 01 · 23   → 히트 0개 → 정지      <span class="c">(학습에는 보너스 라운드가 없다)</span>
+
+정답이 처음 읽힌 라운드   03·11·19·05 → 1라운드 → 벌점 0
+                          21 · 28     → 2라운드 → 가중치 (2 − 1) = 1
+
+벌점은 그 정답의 <span class="a">1라운드 점수</span>로 "히트였어야 한다" 를 채점한다
+  21  1라운드 점수 .77 → 5 × .77 − 2.5 = 1.35 → BCE <span class="a">0.231</span>
+  28  1라운드 점수 .74 → 5 × .74 − 2.5 = 1.20 → BCE <span class="a">0.263</span>
+
+이 질의의 몫 = λ × (1 × 0.231 + 1 × 0.263) = 0.05 × 0.494 = <span class="a">0.0247</span>
+배치 전체 정답 수로 나눈다  64 에피소드 × 32 = 2,048</pre>
+    <figcaption>식: 정답 하나마다 <span class="mono">λ · (찾은 라운드 − 1) · BCE(route_a · 1라운드 점수 + route_b, 1)</span>. 1라운드에 찾은 정답과 끝내 못 찾은 정답은 0.</figcaption>
+  </div>
+  <ul class="tight" style="margin-top:16px">
+    <li><strong>무엇을 미나.</strong> 21 · 28 의 <em>1라운드</em> 점수를 올리는 쪽으로만 기울기가 간다 → 질의 인코더 · <span class="mono">W_q</span> · 키(<span class="mono">W</span> · <span class="mono">u</span> · 방의 은닉 상태). 다음번엔 1라운드에 잡혀 라운드가 준다.</li>
+    <li><strong>affine 계수는 끊는다.</strong> <span class="mono">route_a</span> · <span class="mono">route_b</span> 로는 기울기가 안 간다 — 벌점이 안 읽은 방 판정의 눈금을 휘지 않게. (실측: 벌점 기울기가 route_a · route_b · 히트 헤드에서 0)</li>
+    <li><strong>일찍 멈춰서 피할 수 없다.</strong> 21 · 28 을 아예 못 읽고 멈추면 이 벌점은 0 이 되지만, 대신 손실 ① 에서 pos_weight 7 이 붙은 더 큰 벌을 받는다.</li>
+    <li><strong>학습에는 보너스 라운드가 없다.</strong> 그래서 이 벌점이 받는 “늦게 찾은 정답” 은 보정 덕에 2라운드 이후에 찾은 정답뿐이고, 한 라운드가 통째로 비정답이라 멈춰 못 찾은 정답은 ① 이 크게 벌한다.</li>
+    <li><strong>보너스를 학습에 넣으면 신호가 옮겨 간다.</strong> 5~8위에 있다 못 읽고 멈출 정답은 원래 ① 의 “안 읽은 방” 항(pos_weight 7)이 크게 민다. 보너스로 읽히면 그 방은 칸 판정으로 채점되고, 1라운드 순위를 미는 건 이 벌점(λ)뿐이다 — 그래서 학습 때는 보너스를 켜지 않고, 순위 압력은 λ 를 올려 조인다 (<a href="#t5">05</a>).</li>
+    <li><strong>왜 “라운드 수 × λ” 가 아닌가.</strong> 멈추는 건 규칙이라, 라운드 수에 벌점을 걸면 기울기가 히트 판정으로만 흘러 “히트 아니라고 해서 일찍 멈춰라” 를 배운다 = 정답을 놓친다.</li>
+    <li><strong>λ 는 작게.</strong> 정답이 4개보다 많으면 1라운드 4칸에 다 못 담으니 일부는 늘 벌점을 받는다. λ 가 크면 이룰 수 없는 목표가 다른 손실을 방해한다. <span class="mono">λ = 0</span> 과 <span class="mono">λ = 0.05</span> 를 같은 설정으로 나란히 학습해 비교했다. <span class="mono">λ = 0.05</span> 모델에 추론 보너스를 켠 것이 N = 32 의 프론티어(전부완수 0.9990)다. <span class="mono">λ = 0.1</span> 학습은 <strong>보류했다</strong> — N = 32 에서 λ 로 줄일 여지가 3.6 %p 뿐이라 규모를 올리는 쪽을 택했다 (<a href="#r64">결과 · N = 64</a>).</li>
+  </ul>
+</section>
+
+<section id="t9" class="step">
+  <div class="step-head"><span class="step-num">09</span><h3>합치고 역전파 — 기울기는 손실별 기여의 합</h3></div>
+  <div class="card">
+<pre>총 손실 = ① 히트 판정 + ② 위치 + ③ 크기 + ④ 늦은 정답 벌점
+
+∇(① + ② + ③ + ④) = ∇① + ∇② + ∇③ + ∇④
+<span class="c">역전파를 한 번 하면, 손실마다 따로 역전파해 더한 것과 수학적으로 같은 기울기가 나온다.</span>
+
+키 투영 W 가 한 스텝에 받는 값 (지어낸 값)
+  ① 안 읽은 정답 점수를 올려라           +0.12
+  ② 재현이 잘 되던 칸의 비중을 키워라     −0.03
+  ③                                     −0.01
+  ④ 늦게 찾은 21·28 을 앞당겨라          +0.05
+  ─────────────────────────────────────
+  W 가 실제로 받는 값                    <span class="a">+0.13</span></pre>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>파라미터</th><th>기울기를 주는 손실</th></tr></thead>
+      <tbody>
+        <tr><td>위치 헤드 · 크기 헤드</td><td>② · ③ 각각만</td></tr>
+        <tr><td>히트 헤드 · route_a · route_b</td><td>① 만</td></tr>
+        <tr class="pick"><td>임베딩 · 12층 · u · W · W_q</td><td>① ② ③ ④ 전부의 합</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="cap">점수로 들어가는 길</div>
+<pre>손실
+ ├→ 헤드 · 칸 읽기 · 본체 가중치                          보통의 경로
+ ├→ 읽힌 방의 K·V → 그 방 프레임들의 은닉 상태              읽은 것을 통해
+ └→ 점수 = cos(q, k)                                       <span class="c">soft coef · hard STE · 안 읽은 방 affine · ④ 벌점</span>
+      ├→ q ← W_q ← 질의를 통과시킨 12층                  질의를 잘 만들어라
+      │    └ 보정 q ← q + 히트 방 키 평균                 히트 방 키로도 흐른다
+      └→ k = normalize(W · Σ wᵢhᵢ)
+           ├→ W                                           라우팅 축
+           ├→ wᵢ = softmax(u · hᵢ) → u                   어디를 볼지
+           └→ <span class="a">h₀ … h₃ ★</span>                                 방 캐시 형성 자체가 바뀐다</pre>
+    <figcaption><strong>★ 이 화살표가 설계의 본질이다.</strong> “라우팅이 잘 되게” 하는 압력이 그대로 “이 방의 은닉 상태를 남과 구별되게 만들어라” 가 된다. 라우터를 나중에 붙이면 이 화살표가 없다. 합친 기울기는 크기 1.0 으로 자른 뒤 AdamW 로 업데이트한다.</figcaption>
+  </div>
+  <div class="note">비중은 손실 크기로 정해진다 — 가중치는 모두 1, ④ 만 λ. 네 손실의 비율을 따로 맞춘 적은 없다.</div>
+</section>
+
+<section id="t10" class="step">
+  <div class="step-head"><span class="step-num">10</span><h3>학습 신호 전부 — 빠진 것 없이</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th class="num">#</th><th>신호</th><th>어디서</th><th>가르치는 것</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td class="wrap"><strong>히트 판정 BCE</strong> — 방 32개 전부. 읽은 방은 칸 판정, 안 읽은 방은 route_a·점수+route_b. pos_weight 7</td><td>손실</td><td class="wrap">진짜만 히트 · 안 읽은 정답의 점수를 올려라</td></tr>
+        <tr><td class="num">2</td><td class="wrap"><strong>위치 재현 CE</strong> (256) — 읽은 정답 칸</td><td>손실</td><td class="wrap">캐시를 실제로 읽어라</td></tr>
+        <tr><td class="num">3</td><td class="wrap"><strong>크기 재현 CE</strong> (4) — 같은 칸</td><td>손실</td><td class="wrap">〃</td></tr>
+        <tr class="pick"><td class="num">4</td><td class="wrap"><strong>늦게 찾은 정답 벌점</strong> — λ·(찾은 라운드−1)·BCE(1라운드 점수 affine, 1) / 정답 수. affine 계수 끊음</td><td>손실</td><td class="wrap">정답을 1라운드에 → 라운드 감소</td></tr>
+        <tr><td class="num">5</td><td class="wrap">soft 가중 coef = k·gate/Σgate (τ 0.1)</td><td>경로</td><td class="wrap">손실이 점수로 흐르는 길 (soft)</td></tr>
+        <tr><td class="num">6</td><td class="wrap">hard STE coef = 1 + gate − sg(gate)</td><td>경로</td><td class="wrap">〃 (hard)</td></tr>
+        <tr><td class="num">7</td><td class="wrap">q 보정 — 히트 판정 방의 키 평균. 파라미터 없음</td><td>경로</td><td class="wrap">정답 키끼리 뭉치게</td></tr>
+        <tr><td class="num">8</td><td class="wrap">질의 인코더 — 질의가 같은 12층을 통과</td><td>경로</td><td class="wrap">질의에서 색·모양을 가려라</td></tr>
+        <tr><td class="num">9</td><td class="wrap">그룹 드롭아웃 p 0.5 — 질의별 · 정답 제외 · 모든 라운드에서 가림 · 남은 방 &lt; 4 면 취소</td><td>데이터</td><td class="wrap">다른 방에 기대지 마라</td></tr>
+        <tr><td class="num">10</td><td class="wrap">커리큘럼 soft → hard (30 % = 1,800스텝)</td><td>일정</td><td class="wrap">끊기지 않게 시작해 실제 형태로</td></tr>
+        <tr><td class="num">11</td><td class="wrap">정지 규칙 (학습 안 함) — 0히트 라운드에서 바로 정지. hard 에서 놓친 정답은 1번이 벌한다. <strong>인내의 보너스 라운드는 학습에 없다</strong> (추론 전용 — 넣으면 5~8위 정답의 벌이 1번에서 약한 4번으로 옮겨 간다)</td><td>구조</td><td class="wrap">(간접) 앞 라운드에 담아라</td></tr>
+        <tr><td class="num">12</td><td class="wrap">AdamW (β 0.9/0.95, wd 0.01) · 기울기 자르기 1.0 · warmup 1,000 → cosine (바닥 10 %)</td><td>최적화</td><td class="wrap">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="cap">폐기해서 지금은 없는 것</div>
+    <div class="tw" style="margin-top:0;border:0">
+      <table>
+        <tbody>
+          <tr class="dead"><td>학습된 계속 헤드 + 정지 BCE + 기대 라운드 벌점</td></tr>
+          <tr class="dead"><td>Wr — 읽은 칸 상태 전부(비정답 포함)를 투영해 더하던 보정</td></tr>
+          <tr class="dead"><td>읽은 칸만 채점하던 히트 판정 (D1 이전)</td></tr>
+          <tr class="dead"><td>선형 W_q 질의 (질의 인코더 이전)</td></tr>
+          <tr class="dead"><td>soft 단계 “고르지 않고 어텐션 로짓에 +log(gate)” — 옛 설명. 실제는 top-k 후 칸 출력에 coef 곱</td></tr>
+          <tr class="dead"><td>부하 분산 손실 · 읽은 그룹 수 페널티 — 처음부터 넣지 않음</td></tr>
+          <tr class="dead"><td>학습에 인내의 보너스 라운드를 켜던 설정 (routed_late_bonus) — 학습 전에 폐기, 보너스는 추론 전용</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="t11" class="step">
+  <div class="step-head"><span class="step-num">11</span><h3>일정 · 평가 · 저장</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th class="num">스텝</th><th>일어나는 일</th></tr></thead>
+      <tbody>
+        <tr><td class="num">0 ~ 1,000</td><td class="wrap">학습률 0 → 3 × 10⁻⁴ 로 선형 증가 · soft</td></tr>
+        <tr><td class="num">1,800</td><td class="wrap"><strong>soft → hard 전환</strong> · 정지 규칙(보너스 없음)과 조기 종료가 켜진다</td></tr>
+        <tr><td class="num">1,000 ~ 6,000</td><td class="wrap">학습률 cosine 감소, 바닥은 최대치의 10 %</td></tr>
+        <tr class="pick"><td class="num">500 마다</td><td class="wrap">평가 — 새 에피소드 8 × 64, 질의 4,096개 · <strong>hard · 드롭아웃 없음 · 보너스 없음</strong> · <strong>그 시점 모델을 step_XXXXX.pt 로 저장</strong></td></tr>
+        <tr><td class="num">2,000 마다</td><td class="wrap">재시작용 last.pt (옵티마이저 · 난수 상태 포함)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <strong>후반에 떨어져도 최고점을 쓴다.</strong> 이전 런들은 중반에 최고점을 찍고 후반에 떨어졌다. 500스텝마다 모델이 남으니, 전부완수가 99 % 에 닿는 파일을 골라 질의를 더 많이 넣어 한 번 더 확인한 뒤 쓴다 — 쓸 때는 추론 보너스를 켠 값으로 잰다.
+  </div>
+</section>
+
+<section id="t12" class="step">
+  <div class="step-head"><span class="step-num">12</span><h3>감시 지표와 실패 신호</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>지표</th><th>보는 것</th><th>이상 신호</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td><strong>전부완수</strong></td><td class="wrap">질의를 완전히 풀었나 — 목표</td><td class="wrap" style="color:var(--crit)">★완수는 높은데 여기만 낮음</td></tr>
+        <tr><td>★완수 · 찾기</td><td class="wrap">정답을 몇 개 풀었나 · 읽었나</td><td class="wrap" style="color:var(--crit)">찾기가 낮음 = 라우터·정지 문제</td></tr>
+        <tr><td>읽기 비율 · 라운드</td><td class="wrap">필요한 만큼만 읽나</td><td class="wrap" style="color:var(--crit)">100 % 에 붙음 = 헛히트로 안 멈춤 · 1라운드에 붙음 = 판정이 너무 보수적</td></tr>
+        <tr><td>히트 판정 · 재현</td><td class="wrap">읽은 방을 제대로 쓰나</td><td class="wrap" style="color:var(--crit)">재현 정체 = 방이 분리되지 않음</td></tr>
+        <tr><td>w 엔트로피</td><td class="wrap">풀링 포화</td><td class="wrap" style="color:var(--crit)">0 으로 감 = 한 장이 가중치를 독점</td></tr>
+        <tr><td>선택 위치 cv</td><td class="wrap">특정 방 번호로 쏠림</td><td class="wrap" style="color:var(--crit)">높음 = 최근성 붕괴 (윈도우 어텐션으로 퇴화)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul class="tight" style="margin-top:16px">
+    <li><strong>찾기 0.99 인데 전부완수 0.95</strong> → 판정 실수나 흩어진 누락. 정답 수별로 나눠 어디서 새는지 본다.</li>
+    <li><strong>soft 는 좋다가 hard 로 가며 폭락</strong> → 가중합에 기대고 있었다. 이 런들에선 전환 뒤에도 유지됐다.</li>
+    <li><strong>중반 최고점 후 하락</strong> → 저장된 step 파일 중 최고점을 쓴다.</li>
+  </ul>
+</section>
+</div><!-- /part-train -->
+
+<!-- ═══ 설계 결정 ═══ -->
+<div class="part" id="part-why">
+<div class="band">
+  <div class="k">Decisions</div>
+  <h2>설계 결정 — 무엇을 버리고 왜 이렇게 됐나</h2>
+  <p>지금 구조에 이르기까지 검토하고 버린 대안들. 같은 논의를 다시 하지 않기 위한 기록이고, 여기 적힌 것 말고 모델에 숨은 장치는 없다.</p>
+</div>
+
+<section id="w1" class="step">
+  <div class="step-head"><span class="step-num">01</span><h3>고정 top-k 의 천장 — 필요한 방이 k 를 넘으면 정보를 잃는다</h3></div>
+  <div class="card">
+<pre><span class="c">가정: 파랑 삼각형 방이 10개인 에피소드</span>
+고정 top-8 한 번   → 8칸에 10개를 못 담는다 → <span class="x">최소 2개를 원리상 놓친다</span>
+라운드 + 정지      → 4칸씩 계속 읽다가 새 히트 0개에서 멈춘다 → 10개 + 확인 1라운드 + 인내의 보너스 라운드 1</pre>
+  </div>
+  <div class="note">
+    <strong>실측 이력.</strong> 1라운드 k=8 에서 찾기 0.921. 2라운드 × 4칸(같은 25 %)에서는 정답 7개 질의가 전부 읽힌 비율이 0.82 에 멈췄다 — 8칸 중 오답이 1칸만 허용되기 때문. 예산을 31 %(2+8)로 늘리면 99 % 를 넘었지만, 그건 <em>이 데이터의 정답 상한이 7이라서</em>일 뿐 “필요한 만큼 읽기” 가 아니다. LLM 에서는 읽어야 할 그룹이 몇 개일지 보장이 없다.
+  </div>
+</section>
+
+<section id="w2" class="step">
+  <div class="step-head"><span class="step-num">02</span><h3>임계값 게이트 vs 반복 라우팅 + 정지</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th></th><th>임계값 게이트 (폐기)</th><th>반복 라우팅 + 정지 (채택)</th></tr></thead>
+      <tbody>
+        <tr><td>읽을지 정하는 근거</td><td class="wrap">읽기 전 점수의 <strong>절대값</strong> — “점수 &gt; θ 면 읽는다”</td><td class="wrap">라운드 안에선 <strong>순위</strong>, 멈출지는 <strong>읽은 결과</strong></td></tr>
+        <tr><td>점수 분포가 틀어지면</td><td class="wrap" style="color:var(--crit)">θ 가 통째로 어긋나 완전히 망가진다</td><td class="wrap" style="color:var(--good)">순위는 유지되고, 다음 q 는 읽은 것으로 보정된다</td></tr>
+        <tr><td>임계값</td><td class="wrap">정하기 어렵다</td><td class="wrap">필요 없다</td></tr>
+        <tr><td>“전부 읽기” 방지</td><td class="wrap">읽은 수 벌점 필수</td><td class="wrap">정지를 학습하지 않아 고를 수 없음</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note warn">
+    <strong>실측 근거.</strong> 안 읽은 방을 “점수 &gt; 0.536 이면 히트” 로 판정하던 경로가 헛것을 질의의 <strong>3.4 %</strong> 에서 냈고, 같은 모델에서 q 만 바꾸자 <strong>10 %</strong> 로 뛰었다. 절대값 기준은 점수 분포에 묶여 있다.
+  </div>
+</section>
+
+<section id="w3" class="step">
+  <div class="step-head"><span class="step-num">03</span><h3>학습된 “계속 헤드” 를 버린 이유 — 개수를 추측할 수밖에 없다</h3></div>
+  <div class="card">
+<pre><span class="c">한때 구현했던 것: 라운드마다 헤드가 "안 읽은 방에 정답이 남았나" 를 예측, 라운드 벌점으로 학습</span>
+
+헤드가 1라운드 뒤에 보는 것    히트 · 히트 · 아님 · 히트      ← 이게 전부
+알아야 하는 것                 안 읽은 28 방에 정답이 더 있나  ← 읽은 것만으론 원리상 알 수 없다
+
+→ 헤드는 "정답이 2~7개인 데이터" 의 통계를 외워 추측한다
+→ 정답 수 분포가 바뀌면 틀린다  (중복 상한 7 에서만 맞는 규칙)
+→ "비정답이 섞였으면 바닥났다" 는 단서는 25 가 3위로 끼어든 이 판에서 정답 3개를 남긴 채 멈춘다</pre>
+  </div>
+  <div class="note next"><strong>대체:</strong> 새 히트 0개 라운드에서 정지 (질의마다 처음 한 번은 <a href="#w6">인내의 보너스 라운드</a>). 판단 근거가 “읽고 내린 판정” 이라는 사실뿐이고, 학습하지 않으니 라운드 벌점도 필요 없다. 라운드 벌점 대신 <a href="#t8">늦게 찾은 정답 벌점</a>이 “앞 라운드에 담아라” 를 가르친다.</div>
+</section>
+
+<section id="w4" class="step">
+  <div class="step-head"><span class="step-num">04</span><h3>보정은 히트 키로 — 비정답을 섞지 않는다</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>판</th><th>보정 식</th><th>문제</th></tr></thead>
+      <tbody>
+        <tr><td>없음</td><td class="mono">q₂ = q₁ (가림만)</td><td class="wrap">k 를 키운 것과 똑같다 — 28 은 계속 9위</td></tr>
+        <tr class="dead"><td>Wr (폐기)</td><td class="mono">q₂ = normalize(q₁ + Wr(읽은 4칸 상태 평균))</td><td class="wrap">비정답 25 의 상태도 1/4 섞인다 · 키가 아니라 칸 상태라 “정답 키끼리 뭉친다” 는 전제와 어긋난다</td></tr>
+        <tr class="pick"><td>채택</td><td class="mono">q₂ = normalize(q₁ + 히트 방 키 평균)</td><td class="wrap">전제를 그대로 구현 · 학습 가중치 없음</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">실측: 같은 25 % 예산에서 1라운드 k=8 은 찾기 0.921, 2라운드 × 4칸(Wr 보정 판)은 0.956. 보정이 순위를 바꾼다는 게 확인됐고, 그 뒤 설명과 코드가 어긋나 있던 걸 발견해 히트 키 평균으로 바꿨다.</div>
+</section>
+
+<section id="w5" class="step">
+  <div class="step-head"><span class="step-num">05</span><h3>질의는 12층을 통과시킨다 — 선형 투영으로는 모양을 못 가린다</h3></div>
+  <div class="card">
+<pre>반지름 2 원    픽셀 13개
+반지름 2 삼각  픽셀 13개      ← 픽셀 개수로는 같다
+
+선형 q 는 "위치와 상관없이" 모양을 가릴 수 없다 → 위치마다 패턴을 외워야 한다 → 경계가 얇다</pre>
+  </div>
+  <div class="note">
+    <strong>실측.</strong> 선형 질의 모델에서 q 만 오라클(조합별 키 평균)로 바꾸자 정답을 전부 읽은 질의가 <strong>0.835 → 1.000</strong>. 키는 멀쩡했고 병목은 q 였다. 질의를 관찰과 같은 12층에 통과시키자 (옛 채점 기준으로) 전부완수 최고점이 0.875 → 0.985 로 올랐다. 캐시는 여전히 안 읽으니 “라우팅은 읽기 전에 정해진다” 는 구조는 그대로다.
+  </div>
+</section>
+<section id="w6" class="step">
+  <div class="step-head"><span class="step-num">06</span><h3>인내의 보너스 라운드 — 원인은 키, 먼저 읽기로 덮는다</h3></div>
+  <div class="prose">
+    <p>두 런(λ = 0 · 0.05)이 전부완수 99 % 를 못 넘었다. 실패를 원인별로 나누고 후보를 하나씩 재 본 뒤(전부 실측, 재학습 없음) 정지 규칙에 보너스 한 라운드를 더했다. <strong>원인 자체는 아직 고치지 않았다</strong> — 이 결정은 “먼저 99 % 를 확보하는” 쪽이다.</p>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>측정</th><th>결과 (실측 · 같은 질의 16,384개)</th><th>뜻</th></tr></thead>
+      <tbody>
+        <tr><td>실패 분해</td><td class="wrap">후반(6,000스텝) 실패의 97~98 % 가 “멈춘 라운드 4칸이 전부 비정답인데 정답이 남음”. 판정 실수로 멈춘 경우 0건</td><td class="wrap">순위 문제다</td></tr>
+        <tr><td>멈춘 4칸의 정체</td><td class="wrap">λ = 0.05 · 6,000스텝, 1라운드에서 멈춘 질의 — 색만 같은 방 100 % (무작위로 뽑았다면 18 %)</td><td class="wrap">모양을 못 가른다</td></tr>
+        <tr><td>키</td><td class="wrap">그 질의들에서 cos(정답끼리) − cos(정답, 색만 같은 방) = 0.0027 (전체 평균 0.51). λ = 0 은 학습이 진행되며 전체 간격도 0.693 → 0.496</td><td class="wrap">키에 모양이 거의 안 담겼다 · 학습할수록 나빠졌다</td></tr>
+        <tr><td>q 와 보정</td><td class="wrap">후반엔 q₁ 과 정답 키 중심의 cos 0.997</td><td class="wrap">q 는 이미 제자리 — 보정할 게 없다</td></tr>
+        <tr><td>점수 정밀도</td><td class="wrap">순위 실패의 53 % 가 bf16 컷 동점. 점수만 fp32 로 바꾸자 구제 149 · 새 실패 151</td><td class="wrap">정밀도 문제가 아니다 — 간격이 0 이라는 증상</td></tr>
+        <tr class="pick"><td>놓친 정답의 순위</td><td class="wrap">멈춘 라운드의 5~8위. 한 라운드 더 읽자 전부 구제</td><td class="wrap">→ 인내의 보너스 라운드</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>방식 (λ = 0.05 · 6,000스텝, 추론 모의)</th><th>규칙</th><th class="num">전부완수</th><th class="num">읽기</th><th class="num">질의당 추가 칸</th></tr></thead>
+      <tbody>
+        <tr><td>원래</td><td class="wrap">0히트 라운드에서 정지</td><td class="num">0.9770</td><td class="num">32.8 %</td><td class="num">—</td></tr>
+        <tr class="pick"><td>질의당 1번 (채택)</td><td class="wrap">처음 나온 0히트 라운드만 한 번 더</td><td class="num">0.9990</td><td class="num">45.7 %</td><td class="num">+4.12</td></tr>
+        <tr><td>0히트마다 1번</td><td class="wrap">0히트 라운드가 연속 2번이면 정지</td><td class="num">0.9990</td><td class="num">46.0 %</td><td class="num">+4.21</td></tr>
+        <tr><td>0히트마다 2번</td><td class="wrap">연속 3번이면 정지</td><td class="num">0.9989</td><td class="num">58.5 %</td><td class="num">+8.21</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note next">
+    <strong>학습에는 넣지 않고, 학습이 끝난 모델에 추론 때 켠다.</strong> 규칙이 신호 배분을 바꾸기 때문이다 — 학습 때 켜면 5~8위 정답을 미는 게 손실 ① 대신 약한 ④(λ) 가 되어, 모델이 보너스에 기대 순위를 느슨하게 둘 수 있다 (<a href="#t5">학습 05</a>). 목표가 “가능한 한 덜 읽기” 이므로 학습은 보너스 없이 하고, 순위 압력은 λ 를 올려 조인다. 추론에만 켜도 원래 멈춘 라운드까지의 출력은 그대로다 (실측) — 보너스는 더 읽기만 한다.<br><br><strong>프론티어</strong> — λ = 0.05 · 보너스 없이 학습한 6,000스텝 모델 + 추론 보너스 = 전부완수 <strong>0.9990</strong> · 라운드 3.65 · 읽기 45.7 % (실제 모델 코드, 같은 질의 16,384개) → <span class="mono">frontier/N32/n32_lam005_step06000.pt</span>. <strong>그다음</strong> — λ = 0.1 학습은 보류하고 <strong>규모를 올렸다</strong>. N = 64 에서는 이 “질의당 1번” 이 표준값이 아니게 된다: 정지 인내는 <strong>조정 가능한 다이얼</strong>이고 N = 64 의 값은 <span class="mono">patience = 2</span> 다 (<a href="#r64">결과 · N = 64</a>). 코드에서는 <span class="mono">Config.bonus_round</span> 플래그(기본 꺼짐)이고, 학습 설정에는 켜지 않는다.
+  </div>
+  <div class="note warn">
+    <strong>읽기로 덮은 것이다.</strong> 모든 질의가 4칸을 더 읽고(실측 97.7 % 빈손), 키가 모양을 못 가르는 원인은 그대로 남는다 — 키 정밀도 · 모양 구분은 이 학습 결과를 본 뒤 다시 다룬다. 폐기한 후보: 라우팅 점수 fp32 (위 표). 스텝을 늘리면 되지 않나 — 가능성은 낮게 본다. λ = 0 은 3,000스텝 이후 떨어졌고, 학습이 진행될수록 키 분리가 나빠졌다.
+  </div>
+</section>
+<section id="w7" class="step">
+  <div class="step-head"><span class="step-num">07</span><h3>추론의 여유를 어디에 줄까 — 칸을 늘리기(k+1) vs 멈출 때 한 번 더(보너스)</h3></div>
+  <div class="prose">
+    <p><strong>학습은 엄격하게, 추론은 조금 여유 있게</strong> — 인내의 보너스 라운드를 학습에서 뺀 것도, k = 4 로 학습해 k = 5 로 추론하는 것도 같은 원리다. 차이는 여유를 <strong>쓰는 자리</strong>다.</p>
+    <ul class="tight">
+      <li><strong>k+1</strong> — 모든 라운드에 1칸씩 더 읽는다. 잘 풀리고 있는 라운드에도 쓰고, 정답이 많아 라운드가 늘수록 비용이 커진다.</li>
+      <li><strong>보너스</strong> — “이제 없다” 고 멈추려는 순간 질의당 한 번, 4칸. 순위 실패가 실제로 나는 바로 그 자리다.</li>
+    </ul>
+    <p>같은 프론티어 모델(k = 4 · λ = 0.05 · 보너스 없이 학습)에 추론 규칙과 데이터만 바꿔 쟀다 — 실측, 재학습 없음, 같은 질의 16,384개.</p>
+  </div>
+
+  <div class="card">
+    <div class="cap">어디서 갈리나 — 추론 12절의 판 (지어낸 순위)</div>
+<pre><span class="c">1라운드 점수 순위   1~4위 25 · 15 · 32 · 07 (비정답)   5~8위 03 · 11 · 19 · 05   9 · 10위 21 · 28</span>
+
+k=4 · 보너스 없음   1라운드 4칸 전부 아님 → 정지 → <span class="x">전부완수 0</span>
+k=5 · 보너스 없음   1라운드 5칸 = 25 · 15 · 32 · 07 · <span class="a">03</span> → 03 히트 → 보정하고 계속 → <span class="g">구제</span>
+                   <span class="c">단, 5위도 비정답(예: 빨강 삼각 13)이었다면 5칸 전부 아님 → 정지 → 실패</span>
+k=4 · 보너스 4칸    1라운드 0히트 → 보너스 5~8위 03 · 11 · 19 · 05 → 히트 → 보정하고 계속 → <span class="g">구제</span>
+                   <span class="c">보너스는 질의당 1번 — 보너스에서 히트가 나오면 평소처럼 계속, 그 뒤 0히트면 곧바로 정지</span>
+
+<span class="c">비용 (정답을 다 찾은 뒤 멈출 때까지, 순위가 완벽하다고 가정한 산수)</span>
+정답 6개   k=4 · 보너스   (2 + 확인 1 + 보너스 1) × 4 = 16칸     k=5 · 없음   (2 + 확인 1) × 5 = 15칸     k=5 · 보너스   (2 + 1 + 1) × 5 = 20칸
+정답 10개  k=4 · 보너스   (3 + 1 + 1) × 4 = 20칸                 k=5 · 없음   (2 + 1) × 5 = 15칸           k=5 · 보너스   (2 + 1 + 1) × 5 = 20칸</pre>
+    <figcaption>k=5 무보너스는 칸이 적게 드는 대신 “멈출 때의 안전장치” 가 없다. 품질이 얼마나 갈리는지는 아래 실측.</figcaption>
+  </div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>추론 규칙 (학습은 k=4)</th><th>여유를 쓰는 곳</th><th class="num">전부완수</th><th class="num">순위 실패로 정지</th><th class="num">라운드</th><th class="num">읽기</th></tr></thead>
+      <tbody>
+        <tr><td>k=4 · 보너스 없음</td><td>—</td><td class="num">0.9779</td><td class="num">355</td><td class="num">2.63</td><td class="num">32.9 %</td></tr>
+        <tr><td>k=5 · 보너스 없음 (최대 7라운드)</td><td>모든 라운드 +1칸</td><td class="num">0.9943</td><td class="num">82</td><td class="num">2.44</td><td class="num">38.2 %</td></tr>
+        <tr><td>k=4 · 보너스 2칸</td><td>멈출 때 2칸 (5~6위)</td><td class="num">0.9971</td><td class="num">35</td><td class="num">3.66</td><td class="num">39.5 %</td></tr>
+        <tr class="pick"><td>k=4 · 보너스 4칸 (채택)</td><td>멈출 때 4칸 (5~8위)</td><td class="num">0.9992</td><td class="num">0</td><td class="num">3.66</td><td class="num">45.7 %</td></tr>
+        <tr><td>k=5 · 보너스 4칸</td><td>둘 다</td><td class="num">0.9992</td><td class="num">0</td><td class="num">3.45</td><td class="num">53.9 %</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figcaption>원래 분포(정답 2~7개). 이 표의 데이터는 시드가 달라 보너스 4칸 값이 설계 결정 06 의 0.9990 이 아니라 0.9992 로 나온다. “순위 실패로 정지” 는 그 실패가 난 질의 수.</figcaption>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>정답 수별 · 전부완수 / 읽기</th><th class="num">k=4 · 없음</th><th class="num">k=5 · 없음</th><th class="num">k=4 · 보너스</th><th class="num">k=5 · 보너스</th></tr></thead>
+      <tbody>
+        <tr><td>정답 2개</td><td class="num">0.9571 / 26.5 %</td><td class="num">0.9866 / 32.8 %</td><td class="num">0.9990 / 39.6 %</td><td class="num">0.9990 / 48.6 %</td></tr>
+        <tr><td>정답 5개</td><td class="num">0.9880 / 38.7 %</td><td class="num">0.9960 / 38.7 %</td><td class="num">0.9992 / 51.4 %</td><td class="num">0.9992 / 54.4 %</td></tr>
+        <tr><td>정답 7개</td><td class="num">0.9913 / 42.2 %</td><td class="num">0.9973 / 48.4 %</td><td class="num">0.9993 / 54.9 %</td><td class="num">0.9993 / 64.1 %</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="tight" style="margin-top:16px">
+    <li><strong>k 를 늘리는 건 공짜 절감이 아니다.</strong> k=5 무보너스는 k=4 + 보너스보다 덜 읽지만 품질도 낮다 — 같은 곡선 위의 다른 점이다. 순위 실패가 가장 많던 정답 2개 질의가 0.9571 → 0.9866 으로 가장 많이 올랐다.</li>
+    <li><strong>99.9 % 에 닿는 규칙은 보너스를 켠 둘뿐</strong>이고, 그중 k=4 가 8 %p 덜 읽는다. 둘을 합치면(k=5 + 보너스) 품질은 같고 읽기만 는다.</li>
+    <li><strong>“순위 실패로 정지” 는 버그가 아니다.</strong> 0히트 라운드에서 멈췄는데 안 읽은 정답이 남은 경우다 (최대 라운드에 걸려 멈춘 경우는 제외). k=5 에서도 5칸이 전부 비정답이고 정답이 6위 아래면 생긴다 — 컷이 한 칸 넓어져 355 → 82 로 줄었을 뿐이다. 보너스 4칸이 0 인 건 멈추기 직전 5~8위를 한 번 더 봤고, 이 데이터에선 놓친 정답이 전부 거기 있었기 때문이다.</li>
+    <li><strong>보너스 2칸</strong>은 읽기를 6 %p 줄이지만 5~6위만 봐서 7~8위에만 정답이 남은 35질의를 못 구한다.</li>
+  </ul>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>정답 수 스윕 (k=4) · 학습은 정답 2~7개만 봤다</th><th class="num">질의</th><th class="num">보너스 없음<br>전부완수 · 읽기</th><th class="num">보너스 켬<br>전부완수 · 읽기</th><th class="num">바닥 (보너스 켬)</th></tr></thead>
+      <tbody>
+        <tr><td>정답 7개 (분포 안)</td><td class="num">2,227</td><td class="num">0.9982 · 42.2 %</td><td class="num">0.9996 · 54.7 %</td><td class="num">50.0 %</td></tr>
+        <tr><td>정답 8개</td><td class="num">2,048</td><td class="num">0.9946 · 43.4 %</td><td class="num">0.9985 · 56.0 %</td><td class="num">50.0 %</td></tr>
+        <tr class="pick"><td>정답 10개</td><td class="num">2,048</td><td class="num">0.9976 · 52.0 %</td><td class="num">0.9995 · 64.6 %</td><td class="num">62.5 %</td></tr>
+        <tr><td>정답 12개</td><td class="num">2,048</td><td class="num">0.9976 · 55.5 %</td><td class="num">0.9990 · 68.1 %</td><td class="num">62.5 %</td></tr>
+        <tr><td>정답 16개</td><td class="num">2,048</td><td class="num">0.9995 · 68.0 %</td><td class="num">0.9995 · 80.5 %</td><td class="num">75.0 %</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <figcaption>한 조합에 방을 7 · 8 · 10 · 12 · 16개 몰아준 에피소드에서, 정답이 그 수인 질의만 모았다. 읽기는 full KV(32방 전부) = 100 % 기준. 바닥 = 순위가 완벽할 때 (정답 담는 라운드 + 확인 1 + 보너스 1, 산수). <strong>학습 때 못 본 정답 수에서도 최대 라운드 전에 스스로 멈추며 풀었다</strong> — 정답 수에 상한을 두지 않는 설계가 재학습 없이 성립한다. N=32 에서는 정답이 많으면 방의 상당 부분이 정답이라 읽기 비율이 클 수밖에 없다.</figcaption>
+
+  <div class="note next">
+    <strong>채택 — 학습·추론 모두 k = 4, 추론에만 보너스 4칸.</strong> 전부완수 품질(99.9 %)이 우선이고, 그 품질에서 가장 적게 읽는다. 보너스의 비용은 질의당 고정 4칸이라 방이 늘면 비율이 준다 (N = 256 이면 1.6 %). 추론에서 k 를 키우는 건 예산이 남을 때 쓰는 다이얼로 남긴다 — k = 5 로 학습해 본 적은 없어 경향만 확인했다.
+  </div>
+  <div class="note">
+    <strong>LLM 에 대응시킨다면 — 같은 방식.</strong> 방 = 문서 청크 · 대화 턴 · 파일, 라운드 = 관련 그룹 k 개 읽기, 0히트 = “이번에 읽은 것 중 쓸모 있는 게 없음”, 보너스 = 조기 종료의 인내 1 (“없다고 결론 내리기 전에 한 번만 더 본다”). 학습은 작은 k 로 엄격하게, 추론은 같은 k + 멈출 때 한 번 더. k 는 매 단계의 지연 · 메모리와 바로 묶이지만 보너스는 질의가 끝날 때 한 번 드는 비용이다. “X 를 전부 나열” · 집계처럼 하나만 놓쳐도 틀리는 과제(PLAN §7.1)에서 가장 값지다. <strong>미검증:</strong> LLM 은 그룹 경계가 흐리고 관련도가 연속적이라 “0히트” 판정 자체가 이 테스트베드보다 어렵다.
+  </div>
+  <div class="note warn">
+    <strong>그래서 N 을 늘렸고, 예측이 맞았다.</strong> N = 32 에서는 정답 수가 읽기의 바닥을 정한다: 순위가 완벽해도 평균 3.37 라운드 · 읽기 42.1 % (정답 2~4개 62.9 % · 5~7개 37.1 % 분포로 계산), 프론티어는 3.65 · 45.7 % — λ 나 k 를 조여 줄일 수 있는 건 3.6 %p 뿐이다. 확인 + 보너스의 고정 8칸도 N 이 커져야 비중이 준다. λ = 0.1 학습은 보류하고 규모를 올렸고, <strong>N = 64 에서 읽기가 45.7 % → 31.3 % 로 줄었다</strong> (전부완수는 0.9990 → 0.9992). 실측은 <a href="#r64">결과 · N = 64</a>.
+  </div>
+</section>
+</div><!-- /part-why -->
+
+<!-- ═══ 계산만 ═══ -->
+<div class="part" id="part-math">
+<div class="band">
+  <div class="k">Reference</div>
+  <h2>계산만 — 수식과 모양</h2>
+  <p>설명 없이 연산만. 코드(<span class="mono">src/model.py</span> · <span class="mono">src/metrics.py</span>)와 1:1 이다.</p>
+</div>
+
+<section id="m1" class="step">
+  <div class="step-head"><span class="step-num">01</span><h3>기호와 모양</h3></div>
+  <div class="tw">
+    <table>
+      <thead><tr><th>기호</th><th>뜻</th><th class="num">값</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">N · n · T</td><td>방 수 · 방당 프레임 · 관찰 길이</td><td class="num">32 · 4 · 128</td></tr>
+        <tr><td class="mono">d · d_k · ℓ</td><td>d_model · 키 차원 · 층 수</td><td class="num">256 · 64 · 12</td></tr>
+        <tr class="pick"><td class="mono">k · R</td><td>라운드당 칸 · 최대 라운드</td><td class="num">4 · 8</td></tr>
+        <tr><td class="mono">Q · C</td><td>에피소드당 질의 · 조합 수</td><td class="num">8 · 8</td></tr>
+        <tr><td class="mono">G*</td><td>질의의 정답 방 집합 (데이터 규칙상 2~7개)</td><td class="num">예) 6</td></tr>
+        <tr><td class="mono">τ · p · λ</td><td>soft 온도 · 드롭 확률 · 늦은 정답 벌점</td><td class="num">0.1 · 0.5 · 0 / 0.05</td></tr>
+        <tr><td class="mono">b</td><td>인내의 보너스 라운드 — 질의당 횟수 (bonus_round)</td><td class="num">추론 1 · 학습 0</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="m2" class="step">
+  <div class="step-head"><span class="step-num">02</span><h3>키와 질의</h3></div>
+  <div class="eq"><div class="cap">① 방 g 의 키</div>
+<pre>H_g = [h_0 ; … ; h_{n−1}] ∈ ℝ^(n × d)                   <span class="dimtag">마지막 층 · 4 × 256</span>
+w_g = softmax(H_g uᵀ)                                   <span class="dimtag">4</span>
+k_g = normalize( W (w_gᵀ H_g) )                          <span class="shape">∈ ℝ^(d_k)</span>, ‖k_g‖ = 1
+K   = [k_1 ; … ; k_N]                                    <span class="dimtag">32 × 64</span></pre></div>
+  <div class="eq"><div class="cap">② 질의</div>
+<pre>e_q = Embed(질의 격자)                                    <span class="dimtag">256</span>
+q_1 = normalize( W_q · norm( Blocks₁…₁₂(e_q) ) )           <span class="dimtag">질의 한 장만 · 캐시 안 읽음 · 64</span></pre></div>
+</section>
+
+<section id="m3" class="step">
+  <div class="step-head"><span class="step-num">03</span><h3>라운드 r = 1 … R</h3></div>
+  <div class="eq"><div class="cap">③ 선택 · 유효 · 읽기</div>
+<pre>D        = 드롭 방 (학습만)                    read_0 = ∅,  active_1 = 1
+s_r      = K q_r,   s_r[g] ← −30  for g ∈ D ∪ read_{r−1}
+S_r      = top-k(s_r)                                           <span class="dimtag">4개</span>
+valid_r  = active_r ∧ ( s_r[S_r] &gt; −29 )                        <span class="c">가려진 방을 뽑으면 무효</span>
+read_r   = read_{r−1} ∪ { g ∈ S_r : valid }
+z_g      = norm( SlotBlocks(e_q ; K_g^(1…ℓ), V_g^(1…ℓ)) )       <span class="c">칸 g 는 방 g 의 KV 만</span>
+z_g     ← z_g · coef_g
+coef     = k · gate_{S_r} / Σ gate_{S_r}     (soft),   gate = softmax(s_r / τ)
+         = 1 + gate − sg(gate)               (hard)</pre></div>
+  <div class="eq"><div class="cap">④ 판정 · 정지 · 보정</div>
+<pre>ŷ_g^hit  = z_g W_h              H_r = { g ∈ S_r : valid ∧ ŷ_g^hit &gt; 0 }
+zero_r   = ( |H_r| = 0 )                                  b_1 = 1 (추론, bonus_round) · 0 (학습)
+use_r    = active_r ∧ zero_r ∧ ( b_r &gt; 0 )                 <span class="c">인내의 보너스 라운드</span>
+b_{r+1}  = b_r − use_r
+active_{r+1} = active_r ∧ ( ¬zero_r ∨ use_r )             <span class="c">hard 만. soft 는 전 라운드</span>
+q_{r+1}  = normalize( q_r + mean_{g ∈ H_r} k_g )          <span class="c">H_r = ∅ 이면 q 그대로 → 보너스 라운드는 r 라운드 점수의 5~8위</span>
+<span class="c">배치 전원 active = 0 이면 루프 종료 (결과 동일)</span></pre></div>
+</section>
+
+<section id="m4" class="step">
+  <div class="step-head"><span class="step-num">04</span><h3>출력</h3></div>
+  <div class="eq">
+<pre>답        A = ∪_r H_r
+위치·크기  pos_g = argmax softmax(z_g W_p)  (256),   size_g = argmax softmax(z_g W_s)  (4)
+전 방 로짓 ẑ_g = ŷ_g^hit                        g 를 읽었으면
+            ẑ_g = route_a · s_last[g] + route_b   아니면     <span class="c">s_last = 그 질의가 마지막으로 실제로 쓴 라운드 점수</span>
+
+전부완수   = 1[ A = G*  ∧  ∀g ∈ G*: pos_g, size_g 정답 ]
+★완수      = |{ g ∈ G* : g ∈ A, pos_g, size_g 정답 }| / |G*|</pre></div>
+</section>
+
+<section id="m5" class="step">
+  <div class="step-head"><span class="step-num">05</span><h3>손실</h3></div>
+  <div class="eq">
+<pre>ℒ_hit  = mean_{질의, g=1…N} BCE_pw( ẑ_g , 1[g ∈ G*] ),     pw = (NQ − |G*|합) / |G*|합 = 7
+ℒ_pos  = mean_{g ∈ read ∩ G*} CE( z_g W_p , pos*_g )
+ℒ_size = mean_{g ∈ read ∩ G*} CE( z_g W_s , size*_g )
+ℒ_late = λ · Σ_{g ∈ read ∩ G*} (r_g − 1) · BCE( sg(route_a) · s_1[g] + sg(route_b) , 1 ) / |G*|배치
+         <span class="c">r_g = g 가 처음 읽힌 라운드 (학습에는 보너스 라운드가 없다). 1라운드에 찾았거나 못 찾은 정답은 0</span>
+
+ℒ = ℒ_hit + ℒ_pos + ℒ_size + ℒ_late
+<span class="c">θ ← AdamW( clip_{‖·‖≤1}( ∇ℒ ) )</span></pre></div>
+</section>
+
+<section id="m6" class="step">
+  <div class="step-head"><span class="step-num">06</span><h3>연산량</h3></div>
+  <div class="eq">
+<pre>라운드당 읽기      k · n · d · 2 · ℓ  = 4·4·256·2·12   =  98,304
+라운드당 키 훑기   N · d_k            = 32·64          =   2,048
+full attention     T · d · 2 · ℓ      = 128·256·2·12   = 786,432
+
+정답 6개 · 4라운드  읽기 393,216  → full 대비 <span class="shape">50.0 %</span>     <span class="c">확인 1 + 보너스 1 포함</span>
+정답 3개 · 3라운드  읽기 294,912  → full 대비 <span class="shape">37.5 %</span>
+보너스 라운드 1회   읽기  98,304  → full 대비 <span class="shape">+12.5 %p</span>
+라우터 손익분기     N · d_k = k · n · d · 2 · ℓ  →  N = 98,304 / 64 = <span class="shape">1,536 방</span></pre></div>
+</section>
+</div><!-- /part-math -->
+
+<!-- ═══ 결과 ═══ -->
+<div class="part" id="part-results">
+  <div class="band">
+    <div class="k">Results</div>
+    <h2>규모별 결과</h2>
+    <p>같은 알고리즘을 방 32개와 64개에서 돌린 <strong>실측</strong>이다. 구조 · 손실 · 정지 규칙은 같고, 바뀐 건 설정값과 <strong>추론 다이얼 두 개</strong>(판정 임계값 · 정지 인내)뿐이다. 다이얼 값은 규모마다 다시 고른다 — 고른 과정은 <span class="mono">DOCS/10-TUNING.md</span>.</p>
+  </div>
+
+  <div class="rtabs" role="tablist">
+    <button class="rtab on" type="button" data-pane="pane-n32" role="tab" aria-selected="true">N = 32</button>
+    <button class="rtab" type="button" data-pane="pane-n64" role="tab" aria-selected="false">N = 64</button>
+  </div>
+
+  <div class="rpane" id="pane-n32">
+    <section id="r32" class="step">
+      <div class="step-head"><span class="step-num">32</span><h3>방 32개 — 전부완수 0.9990</h3></div>
+      <div class="statrow">
+        <div class="stat"><div class="l">전부완수</div><div class="v">0.9990</div><div class="s">질의 16,384개</div></div>
+        <div class="stat"><div class="l">평균 라운드</div><div class="v">3.65</div><div class="s">최대 8</div></div>
+        <div class="stat"><div class="l">읽기</div><div class="v">45.7 %</div><div class="s">full KV 대비</div></div>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>설정</th><th>값</th><th>추론 다이얼</th><th>값</th></tr></thead>
+          <tbody>
+            <tr><td>방 · 조합</td><td>32 · 8 (색 4 × 모양 2)</td><td>판정 임계값 <span class="mono">thr</span></td><td class="mono">0 <span class="c">(기본값)</span></td></tr>
+            <tr><td>조합당 방</td><td>2~7</td><td>정지 인내 <span class="mono">patience</span></td><td class="mono">1 <span class="c">(보너스 질의당 1번)</span></td></tr>
+            <tr><td>k · 최대 라운드</td><td>4 · 8</td><td colspan="2" class="wrap"><span class="mono">pos_weight</span> = 7 · 학습 6,000스텝 · λ = 0.05 · 보너스 없이 학습</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <strong>임계값은 건드리지 않았다.</strong> 이 규모에서는 히트 판정이 1.000 까지 가서 헛것이 16,384 질의에 17건뿐이었다 — 경계를 옮길 이유가 없었다. 임계값이 레버로 드러난 건 N = 64 에서다.
+      </div>
+      <div class="card">
+        <div class="cap">예시 — 파랑 삼각 질의 · 정답 03 · 05 · 11 · 19 · 21 · 28</div>
+<pre>1라운드  25 · 15 · 32 · 07   → 판정 아님 ×4 → <span class="a">0히트</span>
+         보너스 1번 남음 → 사용. 히트가 없어 보정도 없다 → q₂ = q₁
+2라운드  <span class="a">03 · 11 · 19 · 05</span>   <span class="c">← 1라운드 점수의 5~8위</span> → 히트 ×4 → 보정
+3라운드  21 · 28 · 13 · 18   → 히트 21 · 28 → 보정
+4라운드  29 · 12 · 01 · 23   → 0히트 · <span class="a">보너스 이미 씀 → 정지</span>
+출력     {03, 05, 11, 19, 21, 28}   <span class="g">전부완수 1</span>      읽기 16칸 = 50 %</pre>
+      </div>
+      <figcaption>방 번호와 순서는 설명용으로 지어낸 값이다. 위 통계 세 개는 실측 (<span class="mono">frontier/N32/n32_lam005_step06000.pt</span>).</figcaption>
+    </section>
+  </div>
+
+  <div class="rpane" id="pane-n64" hidden>
+    <section id="r64" class="step">
+      <div class="step-head"><span class="step-num">64</span><h3>방 64개 — 전부완수 0.9992, 그런데 <em>덜</em> 읽는다</h3></div>
+      <div class="statrow">
+        <div class="stat"><div class="l">전부완수</div><div class="v">0.9992</div><div class="s">질의 32,768개 · 홀드아웃 0.9992</div></div>
+        <div class="stat"><div class="l">평균 라운드</div><div class="v">5.00</div><div class="s">최대 16</div></div>
+        <div class="stat"><div class="l">읽기</div><div class="v">31.3 %</div><div class="s">N = 32 의 45.7 % 보다 낮다</div></div>
+      </div>
+      <div class="premise">
+        <span class="k">규모에서 확인된 것</span>
+        방이 두 배가 됐는데 <strong>읽는 비율은 45.7 % → 31.3 % 로 줄었다.</strong> 확인 라운드와 보너스의 비용이 질의당 <em>고정 칸 수</em>라, 방이 늘면 비중이 준다 — <a href="#w7">설계 결정 07</a> 이 예측한 그대로다.
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>설정</th><th>값</th><th>추론 다이얼</th><th>값</th></tr></thead>
+          <tbody>
+            <tr><td>방 · 조합</td><td>64 · 16 (색 4 × 모양 4)</td><td>판정 임계값 <span class="mono">thr</span></td><td class="mono">+3.0</td></tr>
+            <tr><td>조합당 방</td><td>2~14</td><td>정지 인내 <span class="mono">patience</span></td><td class="mono">2 <span class="c">(0히트 연속 3번이어야 정지 · 상한 없음)</span></td></tr>
+            <tr><td>k · 최대 라운드</td><td>4 · 16</td><td colspan="2" class="wrap"><span class="mono">pos_weight</span> = 15 · 학습 15,000스텝 · λ = 0.05 · 보너스 없이 학습</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>무엇을 했나 (실측 · 질의 32,768개)</th><th class="num">실패</th><th class="num">전부완수</th></tr></thead>
+          <tbody>
+            <tr><td>본 학습 6,000스텝</td><td class="num">287</td><td class="num">0.9912</td></tr>
+            <tr><td>연장 9,000 — LR 을 바닥에 고정</td><td class="num">193</td><td class="num">0.9941</td></tr>
+            <tr><td>연장 15,000 — <span class="mono">max_steps</span> 만 늘려 <strong>LR 되살림</strong> (3e-5 → 1.35e-4)</td><td class="num">108</td><td class="num">0.9967</td></tr>
+            <tr><td>+ 판정 임계값 <span class="mono">+3.0</span> <span class="c">(재학습 없음 · 읽기 그대로)</span></td><td class="num">50</td><td class="num">0.9985</td></tr>
+            <tr class="pick"><td>+ 정지 인내 <span class="mono">patience = 2</span> <span class="c">(재학습 없음)</span></td><td class="num">28</td><td class="num">0.9992</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption>게이트는 전부완수 99.9 % = 실패 33건 이하. <strong>108 → 28 은 재학습 없이 다이얼 둘로만 얻었다.</strong> 홀드아웃 시드(고를 때 쓰지 않은 질의)에서 27건이고, 임계값 +2.5 ~ +4.0 전 구간이 양쪽 시드에서 통과한다.</figcaption>
+      <div class="card">
+        <div class="cap">예시 — 파랑 십자 질의 · 정답 07 · 41 · 다이얼 둘이 각각 어디서 듣는가</div>
+<pre>1라운드  <span class="a">41</span> · 12 · 33 · <span class="a">58</span>
+         로짓  41 <span class="g">+7.1</span> · 12 −6.2 · 33 −5.4 · <span class="a">58 +1.8</span>
+         <span class="c">thr 0 이면 58 도 “정답” → 헛것 하나로 전부완수 0 (E)</span>
+         <span class="a">thr +3.0 → 41 만 히트.</span> 58 은 걸러진다 → 보정
+2라운드  02 · 61 · 44 · 30   전부 −4 이하 → <span class="a">0히트</span>  (연속 1)
+3라운드  13 · 21 · 36 · 47   전부 낮음   → <span class="a">0히트</span>  (연속 2)
+         <span class="c">patience 1 이면 여기서 정지 → 07 을 못 찾고 끝난다 (A)</span>
+4라운드  <span class="a">07</span> · 18 · 26 · 55   07 <span class="g">+5.9</span> → 히트
+         연속 0 으로 리셋 · 보정
+5·6·7라운드  0히트 3연속 → <span class="a">정지</span>
+출력     {07, 41}   <span class="g">전부완수 1</span></pre>
+      </div>
+      <figcaption>로짓과 방 번호는 설명용으로 지어낸 값이다. 위 통계와 표는 실측 (<span class="mono">frontier/N64/n64_lr_step15000.pt</span>). 이 판은 구제 사례라 라운드가 평균(5.00)보다 길다.</figcaption>
+      <div class="note next">
+        <strong>임계값 +3.0 은 주운 값이 아니라 유도되는 값이다.</strong> 손실의 <span class="mono">pos_weight</span> 가 경계를 밀어 놓는다 — 정답 4 대 비정답 60 이라 <span class="mono">pos_weight = 15</span> 이고, 로짓 0 에서 모델이 실제로 믿는 확률은 <span class="mono">1/(1+15) = 6.25 %</span> 다. 진짜 50 % 가 되는 지점은 <span class="mono">log 15 = 2.708</span>, 실측 최적 +3.0 이 여기에 맞는다. <span class="mono">pos_weight</span> 를 1 로 낮춰 재학습하면 최적 임계값이 실제로 0 으로 이동한다 — 다만 모델 자체가 두 배 나빠져서(실패 50 → 107) 쓰지 않는다.
+      </div>
+      <div class="note warn">
+        <strong>다이얼을 고르는 절차.</strong> 추론 하이퍼파라미터를 벤치마크에 맞춰 고르는 건 정당하다 (LLM 의 온도 · top-p · 정지 조건과 같다). 단 셋을 지킨다 — ① <strong>고를 때 쓰지 않은 시드</strong>로 다시 잰다 ② 한 점이 아니라 <strong>평평한 구간</strong>이 통과해야 한다 ③ 가능하면 <strong>유도식</strong>을 댄다. <strong>한계</strong>: 두 시드는 같은 생성기에서 나온다 — 특정 질의가 아니라 생성기의 성질에 맞춘 것일 수는 있다. LLM 내부 벤치마크도 같은 한계를 갖는다.
+      </div>
+      <div class="note">
+        <strong>남은 28건은 전부 판정 정밀도다.</strong> 헛것 23 · 읽은 정답을 “아님” 14 (겹침 있음) · 순위 실패 1. 순위 실패(A)는 30 → 1 로 사실상 사라졌다. 더 내리려면 규칙이 아니라 학습 쪽이다 — 히트 헤드가 단층 <span class="mono">Linear(256, 1)</span> 이라는 점, 모델 폭 · 깊이.
+      </div>
+    </section>
+  </div>
+</div><!-- /part-results -->
+
+<!-- ═══ 체험 ═══ -->
+<div class="part" id="part-demo">
+  <div class="band">
+    <div class="k">Try it</div>
+    <h2>그려서 찾기 — N = 64</h2>
+    <p>그림판에 그린 16 × 16 격자가 <strong>그대로 질의 프레임</strong>이 된다 (별도 인식망 없이). 방 64개 중 몇 개에 불이 들어오는지, 얼마나 읽었는지, 맞혔는지를 실시간으로 본다.</p>
+  </div>
+
+  <section id="d1" class="step">
+    <div class="step-head"><span class="step-num">01</span><h3>실제 모델이 돈다</h3></div>
+
+    <div class="note dm-off" id="dm-off" hidden>
+      <strong>서버가 꺼져 있다.</strong> 이 데모만 로컬 서버가 필요하다 — 저장소에서
+      <span class="mono">python -m demo.serve</span> 를 실행하고 <span class="mono">http://127.0.0.1:8000</span> 으로 이 페이지를 열면 된다.
+      (문서의 나머지 파트는 서버 없이 그대로 읽힌다.)
+    </div>
+
+    <div class="dm" id="dm-ui" hidden>
+      <div>
+        <canvas id="dmc" width="16" height="16" aria-label="질의 그림판 16 × 16"></canvas>
+        <div class="dm-lab">입력 — 색만 고른다. 모양은 직접 그린다</div>
+        <div class="dm-row" id="dm-colors" role="group" aria-label="색"></div>
+        <div class="dm-lab">그린 모양 — 채점 기준</div>
+        <div class="dm-row"><span class="dm-det none" id="dm-det">아직 안 그렸다</span></div>
+        <div class="dm-row">
+          <button class="dm-btn" id="dm-erase" type="button">지우개</button>
+          <button class="dm-btn" id="dm-clear" type="button">전부 지우기</button>
+        </div>
+        <div class="dm-lab">본보기 넣기 — 넣은 뒤에도 판정은 그림으로 한다</div>
+        <div class="dm-row" id="dm-samples" role="group" aria-label="본보기"></div>
+        <div class="dm-dial"><span>판정 임계값</span><input id="dm-thr" type="range" min="-1" max="6" step="0.5" value="3"><b id="dm-thr-v">+3.0</b></div>
+        <div class="dm-dial"><span>정지 인내</span><input id="dm-pat" type="range" min="0" max="4" step="1" value="2"><b id="dm-pat-v">2</b></div>
+        <div class="note" id="dm-dialnote" style="margin-top:10px">
+          <strong>프론티어 조합</strong> — 임계값 +3.0 · 인내 2 에서 <strong>전부완수 0.9992</strong> (실측, 질의 32,768개). 다이얼을 움직이면 그 조합이 아니게 된다.
+        </div>
+      </div>
+
+      <div>
+        <div class="statrow">
+          <div class="stat"><div class="l">읽기</div><div class="v" id="dm-read">—</div><div class="s" id="dm-read-s">full KV 대비</div></div>
+          <div class="stat"><div class="l">라운드</div><div class="v" id="dm-rounds">—</div><div class="s">최대 16</div></div>
+          <div class="stat"><div class="l">채점</div><div class="v" id="dm-exact">—</div><div class="s" id="dm-exact-s">출력 집합 = 정답 집합</div></div>
+        </div>
+        <div class="dm-lab" style="margin-top:0">방 64개 — 이 판에 무엇이 들어 있나 (참조)</div>
+        <div class="dm-rooms" id="dm-rooms" aria-label="방 64개"></div>
+
+        <div class="dm-bot">
+          <div>
+            <div class="dm-lab">캐시 64그룹 — 읽은 것만 불이 들어온다</div>
+            <div class="dm-cache" id="dm-cache" aria-label="캐시 그룹 64개"></div>
+            <div class="dm-legend">
+              <span><i style="background:var(--hair-2)"></i>읽음</span>
+              <span><i style="background:var(--good)"></i>정답이라 판정</span>
+              <span><i style="background:var(--crit)"></i>헛것</span>
+              <span><i style="border:1px solid var(--o-yellow)"></i>못 읽은 정답</span>
+            </div>
+          </div>
+          <div>
+            <div class="dm-lab">재현 — 방 번호만이 아니라 <em>안의 내용</em>을 다시 그린다</div>
+            <div class="dm-recon" id="dm-recon" aria-label="재현 결과"></div>
+            <figcaption>모델이 예측한 <strong>위치(256지선다)와 크기(4지선다)</strong>로 그린 것이다. 모양 · 색은 질의에서 온다. 초록 테두리 = 위치 · 크기 모두 맞음 · 빨강 = 틀림. <strong>위 방 타일과 같은 좌표계</strong>라 나란히 대 보면 된다.</figcaption>
+          </div>
+        </div>
+        <figcaption>캐시는 그룹 번호 순서로 놓았다. <strong>칸 위치는 방의 위치와 아무 관계가 없다</strong> — 몇 번째 캐시를 읽었는지만 보여 준다 (그룹 <em>j</em> 의 KV 는 방 <em>j</em> 의 내용이 아니라 방 0..<em>j</em> 가 섞인 것이다).</figcaption>
+      </div>
+    </div>
+  </section>
+</div><!-- /part-demo -->
+
+<footer>
+  <span>예시의 점수 · 가중치 · 방 번호는 설명용으로 지어낸 값이다. “실측” 표시가 붙은 수치만 측정값이다.</span>
+  <span>구조 · 규칙 · 상수는 코드 기준 (src/model.py · src/metrics.py · src/train.py, 2026-09-16). 규모별 실측은 <a href="#r32">결과</a>.</span>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function(){
+  var PARTS = { data:'part-data', flow:'part-flow', infer:'part-infer', train:'part-train', why:'part-why', math:'part-math', results:'part-results', demo:'part-demo' };
+  var rail = document.querySelector('.rail');
+  if (rail) rail.classList.add('js');
+  var heads = Array.prototype.slice.call(document.querySelectorAll('.toc-head'));
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc-group a'));
+  var owner = {};
+  Object.keys(PARTS).forEach(function(key){
+    var root = document.getElementById(PARTS[key]);
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('section[id]'), function(s){ owner[s.id] = key; });
+  });
+  var current = 'data';
+  function sync(){
+    var root = document.getElementById(PARTS[current]);
+    var best = null;
+    if (root) {
+      Array.prototype.forEach.call(root.querySelectorAll('section[id]'), function(s){
+        if (s.getBoundingClientRect().top <= 140) best = s.id;
+      });
+      if (!best) { var first = root.querySelector('section[id]'); if (first) best = first.id; }
+    }
+    links.forEach(function(a){ a.classList.toggle('on', a.getAttribute('href') === '#' + best); });
+  }
+  function show(key, anchor){
+    if (!PARTS[key]) return;
+    current = key;
+    Object.keys(PARTS).forEach(function(k){
+      var el = document.getElementById(PARTS[k]);
+      if (el) el.hidden = (k !== key);
+    });
+    heads.forEach(function(h){
+      var on = h.dataset.part === key;
+      h.classList.toggle('on', on);
+      h.setAttribute('aria-expanded', on ? 'true' : 'false');
+      h.parentNode.classList.toggle('open', on);
+    });
+    var el = anchor && document.getElementById(anchor);
+    if (el) { el.scrollIntoView({block:'start'}); } else { window.scrollTo(0, 0); }
+    sync();
+  }
+  heads.forEach(function(h){
+    h.setAttribute('aria-controls', PARTS[h.dataset.part]);
+    h.addEventListener('click', function(){ show(h.dataset.part, null); });
+  });
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a) return;
+    var id = a.getAttribute('href').slice(1);
+    if (!owner[id]) return;
+    e.preventDefault();
+    show(owner[id], id);
+    if (history.replaceState) history.replaceState(null, '', '#' + id);
+  });
+  var t = null;
+  window.addEventListener('scroll', function(){
+    if (t) return;
+    t = requestAnimationFrame(function(){ t = null; sync(); });
+  }, {passive:true});
+  var initial = location.hash.slice(1);
+  show(owner[initial] ? owner[initial] : 'data', owner[initial] ? initial : null);
+})();
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.rtab'));
+  var panes = Array.prototype.slice.call(document.querySelectorAll('.rpane'));
+  if (!tabs.length) return;
+  function pick(id){
+    tabs.forEach(function(t){
+      var on = t.dataset.pane === id;
+      t.classList.toggle('on', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panes.forEach(function(p){ p.hidden = (p.id !== id); });
+  }
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ pick(t.dataset.pane); }); });
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a) return;
+    var sec = document.getElementById(a.getAttribute('href').slice(1));
+    var pane = sec && sec.closest && sec.closest('.rpane');
+    if (pane) pick(pane.id);
+  });
+  var s = document.getElementById(location.hash.slice(1));
+  var p0 = s && s.closest && s.closest('.rpane');
+  pick(p0 ? p0.id : 'pane-n32');
+})();
+(function(){
+  var ui = document.getElementById('dm-ui'), off = document.getElementById('dm-off');
+  if (!ui) return;
+  var G = 16, cv = document.getElementById('dmc'), ctx = cv.getContext('2d');
+  var frame = [], ep = null, color = 0, erase = false, busy = false, again = false, timer = null;
+  for (var i = 0; i < G * G; i++) frame.push(0);
+
+  function cssVar(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  function paint(){
+    ctx.clearRect(0, 0, G, G);
+    if (!ep) return;
+    for (var y = 0; y < G; y++) for (var x = 0; x < G; x++) {
+      var v = frame[y * G + x];
+      if (!v) continue;
+      ctx.fillStyle = cssVar(ep.colors[v - 1].var);
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  function glyph(shape, col, size){
+    var c = 'var(' + ep.colors[col].var + ')', r = 8 + size * 3;
+    if (shape === 0) return '<circle cx="24" cy="24" r="' + r + '" fill="' + c + '"/>';
+    if (shape === 1) return '<polygon points="24,' + (24 - r) + ' ' + (24 - r) + ',' + (24 + r) + ' ' + (24 + r) + ',' + (24 + r) + '" fill="' + c + '"/>';
+    if (shape === 2) return '<rect x="' + (24 - r) + '" y="' + (24 - r) + '" width="' + (2 * r) + '" height="' + (2 * r) + '" fill="' + c + '"/>';
+    var t = Math.max(3, r / 3);
+    return '<rect x="' + (24 - t) + '" y="' + (24 - r) + '" width="' + (2 * t) + '" height="' + (2 * r) + '" fill="' + c + '"/>' +
+           '<rect x="' + (24 - r) + '" y="' + (24 - t) + '" width="' + (2 * r) + '" height="' + (2 * t) + '" fill="' + c + '"/>';
+  }
+  function drawAt(e){
+    var b = cv.getBoundingClientRect();
+    var p = e.touches ? e.touches[0] : e;
+    var x = Math.floor((p.clientX - b.left) / b.width * G), y = Math.floor((p.clientY - b.top) / b.height * G);
+    if (x < 0 || y < 0 || x >= G || y >= G) return;
+    frame[y * G + x] = erase ? 0 : color + 1;
+    paint(); queue();
+  }
+  var down = false;
+  cv.addEventListener('pointerdown', function(e){ down = true; cv.setPointerCapture(e.pointerId); drawAt(e); });
+  cv.addEventListener('pointermove', function(e){ if (down) drawAt(e); });
+  cv.addEventListener('pointerup', function(){ down = false; });
+  cv.addEventListener('pointercancel', function(){ down = false; });
+
+  function queue(){ clearTimeout(timer); timer = setTimeout(run, 180); }
+  function setStat(id, v, s){
+    document.getElementById(id).textContent = v;
+    if (s != null) document.getElementById(id + '-s').textContent = s;
+  }
+  function run(){
+    if (busy) { again = true; return; }
+    busy = true;
+    var grid2d = [];
+    for (var y = 0; y < G; y++) grid2d.push(frame.slice(y * G, y * G + G));
+    var thr = parseFloat(document.getElementById('dm-thr').value);
+    var pat = parseInt(document.getElementById('dm-pat').value, 10);
+    fetch('/api/route', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({frame: grid2d, color: color, thr: thr, patience: pat})})
+      .then(function(r){ return r.json(); }).then(render)
+      .catch(function(){ ui.hidden = true; off.hidden = false; })
+      .then(function(){ busy = false; if (again) { again = false; run(); } });
+  }
+  function glyphAt(shape, col, cy, cx, size){   // 16×16 좌표 안에 재현 — 모델이 예측한 위치·크기로
+    var c = 'var(' + ep.colors[col].var + ')', r = size + 2, y = cy + 0.5, x = cx + 0.5;
+    if (shape === 0) return '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + c + '"/>';
+    if (shape === 1) return '<polygon points="' + x + ',' + (y - r) + ' ' + (x - r) + ',' + (y + r)
+                          + ' ' + (x + r) + ',' + (y + r) + '" fill="' + c + '"/>';
+    if (shape === 2) return '<rect x="' + (x - r) + '" y="' + (y - r) + '" width="' + (2 * r)
+                          + '" height="' + (2 * r) + '" fill="' + c + '"/>';
+    var t = Math.max(1, r / 3);
+    return '<rect x="' + (x - t) + '" y="' + (y - r) + '" width="' + (2 * t) + '" height="' + (2 * r) + '" fill="' + c + '"/>'
+         + '<rect x="' + (x - r) + '" y="' + (y - t) + '" width="' + (2 * r) + '" height="' + (2 * t) + '" fill="' + c + '"/>';
+  }
+  function render(res){
+    var cq = document.querySelectorAll('.dm-cq');
+    Array.prototype.forEach.call(cq, function(c){ c.className = 'dm-cq'; });
+    document.getElementById('dm-recon').innerHTML = '';
+    var det = document.getElementById('dm-det');
+    if (res.empty) {
+      det.className = 'dm-det none'; det.textContent = '아직 안 그렸다';
+      setStat('dm-read', '—', 'full KV 대비'); setStat('dm-rounds', '—');
+      setStat('dm-exact', '—', '출력 집합 = 정답 집합');
+      document.getElementById('dm-exact').style.color = '';
+      return;
+    }
+    det.className = 'dm-det';
+    det.innerHTML = '<svg viewBox="0 0 48 48" style="width:18px;height:18px" aria-hidden="true">'
+      + glyph(res.shape, res.color, 1) + '</svg>' + ep.colors[res.color].name + ' ' + res.shape_name
+      + '<span class="iou">일치도 ' + res.iou.toFixed(2) + '</span>';
+    setStat('dm-read', res.n_read + ' / 64', 'full KV 대비 ' + res.read_frac + ' %');
+    setStat('dm-rounds', String(res.n_rounds));
+    setStat('dm-exact', res.exact ? '맞음' : '틀림',
+      res.exact ? '출력 = 정답 ' + res.answers.length + '개'
+                : (res.cause ? '원인 ' + res.cause : '') + ' · 정답 ' + res.answers.length + ' · 출력 ' + res.output.length);
+    document.getElementById('dm-exact').style.color = res.exact ? 'var(--good)' : 'var(--crit)';
+    // 1) 캐시 점등 — 라운드마다 순서대로
+    res.rounds.forEach(function(slots, r){
+      setTimeout(function(){
+        slots.forEach(function(s){
+          if (!s.valid) return;
+          var c = cq[s.room]; if (!c) return;
+          c.classList.add('read');
+          if (s.hit) c.classList.add(s.truth ? 'ans' : 'fp');
+        });
+      }, r * 170);
+    });
+    var after = res.rounds.length * 170;
+    setTimeout(function(){
+      res.answers.forEach(function(a){ if (res.output.indexOf(a) < 0) cq[a].classList.add('miss'); });
+    }, after);
+
+    // 2) 재현 — 찾은 순서대로 하나씩 그려 낸다
+    var found = [];
+    res.rounds.forEach(function(slots){
+      slots.forEach(function(s){ if (s.valid && s.hit) found.push(s); });
+    });
+    var strip = document.getElementById('dm-recon');
+    found.forEach(function(s, i){
+      var el = document.createElement('div');
+      el.className = 'dm-rc ' + (s.truth && s.ok ? 'ok' : 'no');
+      el.title = '방 ' + s.room + ' — 재현 (' + s.cy + ',' + s.cx + ') 크기 ' + s.size
+               + (s.truth ? (s.ok ? ' · 맞음' : ' · 위치·크기 틀림') : ' · 헛것');
+      el.innerHTML = '<svg viewBox="0 0 16 16" style="width:100%;display:block" aria-hidden="true">'
+                   + glyphAt(res.shape, res.color, s.cy, s.cx, s.size) + '</svg>'
+                   + '<div class="rid">' + s.room + '</div>';
+      strip.appendChild(el);
+      setTimeout(function(){ el.classList.add('on'); }, after + 120 + i * 220);
+    });
+  }
+
+  fetch('/api/episode').then(function(r){ return r.json(); }).then(function(d){
+    ep = d; ui.hidden = false; off.hidden = true;
+    var cw = document.getElementById('dm-colors'), sw = document.getElementById('dm-samples');
+    function drawSample(s){          // 본보기를 캔버스에 찍는다 — 입력이 아니라 그리기 보조다
+      for (var i = 0; i < G * G; i++) frame[i] = 0;
+      var r = 4, t = Math.max(1, Math.round(r / 3));
+      for (var y = 0; y < G; y++) for (var x = 0; x < G; x++) {
+        var dy = y - 8, dx = x - 8, on = false;
+        if (s === 0) on = dy * dy + dx * dx <= r * r;
+        else if (s === 1) on = (dy >= -r && dy <= r && 2 * Math.abs(dx) <= dy + r);
+        else if (s === 2) on = Math.max(Math.abs(dy), Math.abs(dx)) <= r;
+        else on = (Math.abs(dy) <= r && Math.abs(dx) <= t) || (Math.abs(dx) <= r && Math.abs(dy) <= t);
+        if (on) frame[y * G + x] = color + 1;
+      }
+      paint(); queue();
+    }
+    function renderSamples(){        // 현재 색으로 네 모양을 보여 준다
+      sw.innerHTML = '';
+      d.shapes.forEach(function(nm, i){
+        var b = document.createElement('button');
+        b.className = 'dm-btn'; b.type = 'button';
+        b.innerHTML = '<svg viewBox="0 0 48 48" style="width:17px;height:17px;vertical-align:-3px" aria-hidden="true">'
+                    + glyph(i, color, 1) + '</svg> ' + nm;
+        b.onclick = function(){ drawSample(i); };
+        sw.appendChild(b);
+      });
+    }
+    d.colors.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'dm-sw' + (i === color ? ' on' : ''); b.type = 'button';
+      b.style.background = 'var(' + c.var + ')'; b.title = c.name; b.setAttribute('aria-label', c.name);
+      b.onclick = function(){
+        color = i; erase = false;
+        Array.prototype.forEach.call(cw.children, function(x, j){ x.classList.toggle('on', j === i); });
+        document.getElementById('dm-erase').classList.remove('on');
+        for (var p = 0; p < frame.length; p++) if (frame[p]) frame[p] = color + 1;   // 그린 것도 새 색으로
+        renderSamples(); paint(); queue();
+      };
+      cw.appendChild(b);
+    });
+    renderSamples();
+    var g = document.getElementById('dm-rooms');
+    d.rooms.forEach(function(rm){
+      var el = document.createElement('div');
+      el.className = 'dm-cell';
+      el.title = '방 ' + rm.id + ' · ' + d.colors[rm.color].name + d.shapes[rm.shape]
+               + ' · (' + rm.cy + ',' + rm.cx + ') 크기 ' + rm.size;
+      el.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true">'      // 재현 패널과 같은 좌표계
+                   + glyphAt(rm.shape, rm.color, rm.cy, rm.cx, rm.size) + '</svg>';
+      g.appendChild(el);
+    });
+    var cg = document.getElementById('dm-cache');
+    for (var ci = 0; ci < d.n_rooms; ci++) {
+      var q = document.createElement('div');
+      q.className = 'dm-cq'; q.title = '캐시 그룹 ' + ci;
+      cg.appendChild(q);
+    }
+    document.getElementById('dm-erase').onclick = function(){
+      erase = !erase; this.classList.toggle('on', erase); };
+    document.getElementById('dm-clear').onclick = function(){
+      for (var i = 0; i < G * G; i++) frame[i] = 0; paint(); queue(); };
+    ['dm-thr','dm-pat'].forEach(function(id){
+      var el = document.getElementById(id);
+      el.addEventListener('input', function(){
+        var v = parseFloat(el.value);
+        document.getElementById(id + '-v').textContent = id === 'dm-thr' ? (v >= 0 ? '+' : '') + v.toFixed(1) : String(v);
+        var f = parseFloat(document.getElementById('dm-thr').value) === 3 && parseInt(document.getElementById('dm-pat').value, 10) === 2;
+        document.getElementById('dm-dialnote').classList.toggle('warn', !f);
+        queue();
+      });
+    });
+    paint(); drawSample(1);          // 처음엔 삼각 본보기를 하나 넣어 둔다
+  }).catch(function(){ ui.hidden = true; off.hidden = false; });
+})();
+</script>
