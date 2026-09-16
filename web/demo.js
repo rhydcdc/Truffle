@@ -7,7 +7,7 @@
  * 규칙은 web/verify.py 의 onnx_loop · demo/serve.py 의 _detect_shape · diag/diag_m15.py 의 classify 와 같다.
  * route() 의 반환 모양은 serve.py do_route 와 같다 — 화면 코드는 로컬 데모 것을 그대로 쓴다.
  */
-var Shelfmark = (function(){
+var Truffle = (function(){
   var BASE = new URL('assets/', document.currentScript.src).href;
   var M, keys, kv, qenc, slot, cands;         // 자산은 원본 모델 그대로 fp32 (web/export.py)
 
@@ -259,7 +259,7 @@ var Shelfmark = (function(){
     for (var y = 0; y < G; y++) grid2d.push(frame.slice(y * G, y * G + G));
     var thr = parseFloat(document.getElementById('dm-thr').value);
     var pat = parseInt(document.getElementById('dm-pat').value, 10);
-    Shelfmark.route(grid2d, color, thr, pat)
+    Truffle.route(grid2d, color, thr, pat)
       .then(render)
       .catch(function(err){ console.error(err); })
       .then(function(){ busy = false; if (again) { again = false; run(); } });
@@ -333,7 +333,7 @@ var Shelfmark = (function(){
   }
 
   var msg = document.getElementById('dm-off-msg');
-  Shelfmark.load(function(got, total){
+  Truffle.load(function(got, total){
     msg.textContent = '모델을 받는 중 — ' + (got / 1048576).toFixed(1) + ' / ' + (total / 1048576).toFixed(1) + ' MB (첫 방문만)';
   }).then(function(d){
     ep = d; ui.hidden = false; off.hidden = true;

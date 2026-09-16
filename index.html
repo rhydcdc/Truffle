@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<title>캐시 라우팅 워크스루</title>
+<title>Truffle 워크스루</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
@@ -310,7 +310,7 @@ footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--hair);
 <div class="shell">
 
 <aside class="rail">
-  <div class="rail-mark">Cache Routing</div>
+  <div class="rail-mark">Truffle</div>
   <nav>
     <div class="toc-group">
       <button class="toc-head" data-part="data" type="button"><i></i>데이터셋</button>
@@ -402,7 +402,7 @@ footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--hair);
 <main>
 
 <header class="masthead">
-  <h1>캐시 라우팅 워크스루</h1>
+  <h1>Truffle 워크스루</h1>
   <p class="dek">과거 캐시를 전부 읽지 않는다. 라우터가 라운드마다 <strong>지금 필요한 방 4개</strong>만 골라 그 방의 <strong>원본 KV 를 손실 없이</strong> 읽고, <strong>새로 찾은 정답이 없는 라운드가 나오면 멈추되, 질의마다 처음 한 번은 한 라운드 더 본다</strong> — 인내의 보너스 라운드, 학습이 끝난 모델에 추론 때만 켠다. 정답이 몇 개인지 몰라도 필요한 만큼 읽는다. 파랑 삼각형 질의 하나를 추론과 학습 양쪽에서 끝까지 따라간다.</p>
   <div class="meta-row">
     <span class="chip hot">예시의 점수·방 번호는 설명용으로 지어낸 값 — 실측은 “실측” 이라고 표시</span>
@@ -1172,7 +1172,7 @@ footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--hair);
         <tr><td>최근 방만 (윈도우)</td><td class="mono">방 21 ~ 32 (12방)</td><td style="color:var(--crit)">21 · 28 만 — 2/6. 정답이 시퀀스 전체에 흩어져 있다</td></tr>
         <tr><td>압축 / evict</td><td>32방 전부의 축약본</td><td style="color:var(--crit)">어느 조합이 질의될지 압축 시점에 모른다 — 위치·크기가 지워질 수 있다</td></tr>
         <tr><td>고정 top-8 한 번</td><td class="mono">03 11 25 19 05 15 21 32</td><td style="color:var(--crit)">5/6 — 28(9위) 놓침. 정답이 8개를 넘으면 원리상 못 담는다</td></tr>
-        <tr class="pick"><td>캐시 라우팅 (라운드 + 보정 + 정지 + 보너스)</td><td class="mono">16방</td><td style="color:var(--good)">6/6 — 필요한 만큼 읽고 멈춤</td></tr>
+        <tr class="pick"><td>Truffle (라운드 + 보정 + 정지 + 보너스)</td><td class="mono">16방</td><td style="color:var(--good)">6/6 — 필요한 만큼 읽고 멈춤</td></tr>
       </tbody>
     </table>
   </div>
