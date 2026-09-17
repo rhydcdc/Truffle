@@ -1,4 +1,7 @@
-/* 체험 데모 — 브라우저 판.
+/* 체험 데모 — 브라우저 판의 계산부 (화면 코드는 WALKTHROUGH.html 에서 떼어 온다).
+ *
+ * 배포되는 web/demo.js = 이 파일 + WALKTHROUGH.html 끝의 화면 IIFE — web/build_page.py 가 붙인다.
+ * 그래서 화면을 고칠 곳은 WALKTHROUGH.html 한 곳뿐이다 (두 곳에 복사해 두면 반드시 어긋난다).
  *
  * 로컬 데모(demo/serve.py)는 PyTorch 가 /api/route 를 계산한다. 여기서는 같은 계산을 브라우저가 한다:
  *   qenc.onnx   그림 one-hot -> q, e_q
@@ -95,6 +98,12 @@ var Truffle = (function(){
     });
   }
 
+  function part(v, off, n){                   // 그 칸의 로짓만 잘라 낸다 (확률 계산은 화면에서)
+    var out = [];
+    for (var i = 0; i < n; i++) out.push(Math.round(v[off + i] * 1000) / 1000);
+    return out;
+  }
+
   // frame: 16×16 (행 배열) — serve.py RouteIn 과 같은 입력
   async function route(frame, color, thr, patience){
     var G = M.grid, N = M.n_rooms, k = M.k, R = M.max_rounds, S = M.n_sym, dk = M.d_key;
@@ -159,7 +168,10 @@ var Truffle = (function(){
         if (dec) { nHit++; for (var d2 = 0; d2 < dk; d2++) qa[d2] += keys[room * dk + d2]; }
         slots.push({room: room, valid: valid[j3], hit: dec, logit: Math.round(hit[j3] * 100) / 100,
                     truth: truth[room], cy: Math.floor(p / G), cx: p % G, size: z,
-                    ok: p === rm.cy * G + rm.cx && z === rm.size});
+                    ok: p === rm.cy * G + rm.cx && z === rm.size,
+                    // 그린 칸(히트 판정)만 · 확률이 아니라 로짓 — demo/serve.py 와 같은 규약
+                    pos_logit: dec ? part(pos, j3 * nP, nP) : null,
+                    size_logit: dec ? part(size, j3 * nS, nS) : null});
       }
       rounds.push(slots);
 
@@ -211,6 +223,7 @@ var Truffle = (function(){
   if (!ui) return;
   var G = 16, cv = document.getElementById('dmc'), ctx = cv.getContext('2d');
   var frame = [], ep = null, color = 0, erase = false, busy = false, again = false, timer = null;
+  var selRoom = null;                          // 상세로 보고 있는 방 — 다시 그려도 유지한다
   for (var i = 0; i < G * G; i++) frame.push(0);
 
   function cssVar(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
@@ -275,10 +288,97 @@ var Truffle = (function(){
     return '<rect x="' + (x - t) + '" y="' + (y - r) + '" width="' + (2 * t) + '" height="' + (2 * r) + '" fill="' + c + '"/>'
          + '<rect x="' + (x - r) + '" y="' + (y - t) + '" width="' + (2 * r) + '" height="' + (2 * t) + '" fill="' + c + '"/>';
   }
+  function maskCells(shape, cy, cx, size){    // 생성기 마스크 (src/data.py _mask) — 반지름 = 크기 + 2
+    var r = size + 2, thin = Math.max(r / 3, 1), m = [];
+    for (var y = 0; y < G; y++) for (var x = 0; x < G; x++) {
+      var dy = y - cy, dx = x - cx, on;
+      if (shape === 0) on = dy * dy + dx * dx <= r * r;
+      else if (shape === 1) on = dy >= -r && dy <= r && 2 * Math.abs(dx) <= dy + r;
+      else if (shape === 2) on = Math.max(Math.abs(dy), Math.abs(dx)) <= r;
+      else on = (Math.abs(dy) <= r && Math.abs(dx) <= thin) || (Math.abs(dx) <= r && Math.abs(dy) <= thin);
+      m.push(on);
+    }
+    return m;
+  }
+  function rgb(v){                            // "#9085e9" -> "144,133,233"
+    var h = cssVar(v).replace('#', '');
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)].join(',');
+  }
+  function softmax(v){                        // 모델이 낸 로짓 -> 확률. 배정밀도라 1e-44 도 살아남는다
+    if (!v) return [];
+    var mx = Math.max.apply(null, v), e = v.map(function(x){ return Math.exp(x - mx); });
+    var sum = e.reduce(function(a, b){ return a + b; }, 0);
+    return e.map(function(x){ return x / sum; });
+  }
+  function pct(p){                            // 아주 작은 확률은 0.0 % 로 뭉개지 않는다
+    return p >= 0.001 ? (100 * p).toFixed(1) + ' %' : (100 * p).toExponential(1) + ' %';
+  }
+  function bars(el, items){                   // 확률 막대 — items = [{lab, p, on}]
+    el.innerHTML = '';
+    items.forEach(function(it){
+      var d = document.createElement('div');
+      d.className = 'dm-bar' + (it.on ? ' on' : '');
+      d.innerHTML = '<span>' + it.lab + '</span><i style="width:' + (100 * it.p).toFixed(1) + '%"></i>'
+                  + '<b>' + pct(it.p) + '</b>';
+      el.appendChild(d);
+    });
+  }
+  function showDraw(res, s){                  // 이 방을 어떻게 그렸나 — 확률 격자 + 그린 칸
+    var thr = parseFloat(document.getElementById('dm-thr').value);
+    var wrap = document.getElementById('dm-draw'); wrap.hidden = false;
+    var grid = document.getElementById('dm-grid'); grid.innerHTML = '';
+    var pp = softmax(s.pos_logit), sp = softmax(s.size_logit), pmax = 0;
+    for (var i = 0; i < pp.length; i++) if (pp[i] > pmax) pmax = pp[i];
+    var mask = maskCells(res.shape, s.cy, s.cx, s.size);
+    var col = 'var(' + ep.colors[res.color].var + ')', ac = rgb('--accent');
+    for (var c = 0; c < G * G; c++) {
+      var d = document.createElement('div');
+      d.className = 'dm-px' + (c === s.cy * G + s.cx ? ' center' : '');
+      if (mask[c]) d.style.background = col;                       // 칠한 칸만 칠한다
+      else if (pmax > 0 && pp[c] > 0) {                            // 배경 = 중심일 확률 (로그 눈금 12자리)
+        var a = 1 + Math.log(pp[c] / pmax) / Math.LN10 / 12;
+        if (a > 0) d.style.background = 'rgba(' + ac + ',' + a.toFixed(3) + ')';
+      }
+      d.title = '(' + Math.floor(c / G) + ',' + (c % G) + ') 중심일 확률 '
+              + (100 * (pp[c] || 0)).toFixed(2) + ' %';
+      grid.appendChild(d);
+    }
+    var old = document.querySelector('#dm-gridwrap svg');          // 같은 값으로 그린 매끈한 도형을 겹친다
+    if (old) old.remove();
+    document.getElementById('dm-gridwrap').insertAdjacentHTML('beforeend',
+      '<svg viewBox="0 0 16 16" aria-hidden="true">' + glyphAt(res.shape, res.color, s.cy, s.cx, s.size) + '</svg>');
+
+    var rm = ep.rooms[s.room];
+    var rest = 0;
+    for (var t = 0; t < pp.length; t++) if (t !== s.cy * G + s.cx) rest += pp[t];
+    var rows = [
+      ['방', String(s.room)],
+      ['모델이 고른 위치', '(' + s.cy + ',' + s.cx + ') · ' + pct(pp[s.cy * G + s.cx] || 0)],
+      ['모델이 고른 크기', s.size + ' · ' + pct(sp[s.size] || 0)],
+      ['나머지 255칸 합', pct(rest)],
+      ['판정 점수 (히트 로짓)', s.logit.toFixed(2)
+        + '<span class="dm-hint">임계값 ' + (thr >= 0 ? '+' : '') + thr.toFixed(1) + ' 보다 크면 정답이라 판정</span>'],
+      ['방에 실제로 든 것', s.truth ? '(' + rm.cy + ',' + rm.cx + ') 크기 ' + rm.size : '이 조합이 아니다'],
+      ['채점', '<b style="color:var(' + (s.truth && s.ok ? '--good' : '--crit') + ')">'
+             + (s.truth ? (s.ok ? '맞음' : '위치 · 크기 틀림') : '헛것') + '</b>'],
+    ];
+    document.getElementById('dm-draw-head').innerHTML = '<table class="dm-tab"><tbody>'
+      + rows.map(function(r){ return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('')
+      + '</tbody></table>';
+    bars(document.getElementById('dm-size'), sp.map(function(p, i){
+      return {lab: '크기 ' + i, p: p, on: i === s.size};
+    }));
+    var idx = pp.map(function(p, i){ return i; }).sort(function(a, b){ return pp[b] - pp[a]; }).slice(0, 4);
+    bars(document.getElementById('dm-top'), idx.map(function(i){
+      return {lab: '(' + Math.floor(i / G) + ',' + (i % G) + ')', p: pp[i], on: i === s.cy * G + s.cx};
+    }));
+  }
+
   function render(res){
     var cq = document.querySelectorAll('.dm-cq');
     Array.prototype.forEach.call(cq, function(c){ c.className = 'dm-cq'; });
     document.getElementById('dm-recon').innerHTML = '';
+    document.getElementById('dm-draw').hidden = true;
     var det = document.getElementById('dm-det');
     if (res.empty) {
       det.className = 'dm-det none'; det.textContent = '아직 안 그렸다';
@@ -318,23 +418,35 @@ var Truffle = (function(){
     res.rounds.forEach(function(slots){
       slots.forEach(function(s){ if (s.valid && s.hit) found.push(s); });
     });
-    var strip = document.getElementById('dm-recon');
+    var strip = document.getElementById('dm-recon'), chips = [];
+    function pick(i){                          // 고른 방 하나만 크게 — 공간이 좁다
+      chips.forEach(function(c, j){ c.classList.toggle('sel', j === i); });
+      selRoom = found[i].room;
+      showDraw(res, found[i]);
+    }
     found.forEach(function(s, i){
-      var el = document.createElement('div');
+      var el = document.createElement('button');
+      el.type = 'button';
       el.className = 'dm-rc ' + (s.truth && s.ok ? 'ok' : 'no');
       el.title = '방 ' + s.room + ' — 재현 (' + s.cy + ',' + s.cx + ') 크기 ' + s.size
                + (s.truth ? (s.ok ? ' · 맞음' : ' · 위치·크기 틀림') : ' · 헛것');
       el.innerHTML = '<svg viewBox="0 0 16 16" style="width:100%;display:block" aria-hidden="true">'
                    + glyphAt(res.shape, res.color, s.cy, s.cx, s.size) + '</svg>'
                    + '<div class="rid">' + s.room + '</div>';
-      strip.appendChild(el);
+      el.onclick = function(){ pick(i); };
+      strip.appendChild(el); chips.push(el);
       setTimeout(function(){ el.classList.add('on'); }, after + 120 + i * 220);
     });
+    if (found.length) {                        // 보던 방이 이번에도 있으면 그대로 둔다
+      var keep = found.map(function(s){ return s.room; }).indexOf(selRoom);
+      pick(keep < 0 ? 0 : keep);
+    }
   }
 
   var msg = document.getElementById('dm-off-msg');
   Truffle.load(function(got, total){
-    msg.textContent = '모델을 받는 중 — ' + (got / 1048576).toFixed(1) + ' / ' + (total / 1048576).toFixed(1) + ' MB (첫 방문만)';
+    msg.textContent = '모델을 받는 중 — ' + (got / 1048576).toFixed(1) + ' / '
+                    + (total / 1048576).toFixed(1) + ' MB (첫 방문만)';
   }).then(function(d){
     ep = d; ui.hidden = false; off.hidden = true;
     var cw = document.getElementById('dm-colors'), sw = document.getElementById('dm-samples');
